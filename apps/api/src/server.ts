@@ -47,7 +47,13 @@ await registerBullBoard(app);
 const port = Number(process.env.API_PORT ?? 4000);
 const host = process.env.API_HOST ?? "0.0.0.0";
 
-app.listen({ port, host }).catch((err) => {
-  app.log.error(err);
-  process.exit(1);
-});
+app.listen({ port, host })
+  .then(() => {
+    if (process.env.DEBUG_ROUTES === "1") {
+      console.log(app.printRoutes({ commonPrefix: false }));
+    }
+  })
+  .catch((err) => {
+    app.log.error(err);
+    process.exit(1);
+  });

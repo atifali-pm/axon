@@ -29,8 +29,5 @@ export async function registerBullBoard(app: FastifyInstance) {
     await requireOwnerOrAdmin(req, reply);
   });
 
-  await app.register(serverAdapter.registerPlugin(), {
-    prefix: BASE_PATH,
-    basePath: "",
-  });
+  await app.register(serverAdapter.registerPlugin(), { prefix: BASE_PATH });
 }

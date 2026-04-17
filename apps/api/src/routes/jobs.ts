@@ -1,6 +1,6 @@
 import { db, schema } from "@axon/db";
 import { QUEUE_NAMES } from "@axon/shared/queues";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { requireAuth } from "../middleware/auth";
 import { enqueue } from "../queues";
@@ -26,6 +26,15 @@ export async function jobRoutes(app: FastifyInstance) {
     );
 
     return { jobId: row.id, status: row.status };
+  });
+
+  app.get("/", { preHandler: requireAuth }, async (req) => {
+    const rows = await db.query.jobs.findMany({
+      where: eq(schema.jobs.organizationId, req.organization.id),
+      orderBy: [desc(schema.jobs.createdAt)],
+      limit: 10,
+    });
+    return { jobs: rows };
   });
 
   app.get<{ Params: { id: string } }>(
