@@ -1,0 +1,14 @@
+**/node_modules
+**/.next
+**/dist
+**/build
+**/.turbo
+**/.venv
+**/__pycache__
+**/.git
+**/.env
+**/.env.*
+!**/.env.example
+**/*.log
+**/.DS_Store
+**/coverage

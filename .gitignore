@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+.next/
+.turbo/
+out/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Env files
+.env
+.env.local
+.env.*.local
+.env.secrets
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Coverage
+coverage/
+*.lcov
+
+# OS
+Thumbs.db
+
+# Generated
+drizzle/meta/_journal.json.bak
+
+# Claude Code local overrides
+.claude/settings.local.json
