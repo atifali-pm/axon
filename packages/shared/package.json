@@ -9,7 +9,8 @@
     ".": "./src/index.ts",
     "./types": "./src/types.ts",
     "./constants": "./src/constants.ts",
-    "./auth": "./src/auth.ts"
+    "./auth": "./src/auth.ts",
+    "./queues": "./src/queues.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

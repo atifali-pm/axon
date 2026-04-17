@@ -10,6 +10,8 @@ dotenvExpand.expand(dotenv.config({ path: path.resolve(here, "../../../.env") })
 
 const { requireAuth } = await import("./middleware/auth");
 const { documentRoutes } = await import("./routes/documents");
+const { jobRoutes } = await import("./routes/jobs");
+const { registerBullBoard } = await import("./routes/admin");
 
 const app = Fastify({
   logger: {
@@ -39,6 +41,8 @@ app.get("/api/me", { preHandler: requireAuth }, async (req) => ({
 }));
 
 await app.register(documentRoutes, { prefix: "/api/documents" });
+await app.register(jobRoutes, { prefix: "/api/jobs" });
+await registerBullBoard(app);
 
 const port = Number(process.env.API_PORT ?? 4000);
 const host = process.env.API_HOST ?? "0.0.0.0";
