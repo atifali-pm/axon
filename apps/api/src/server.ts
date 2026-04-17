@@ -9,6 +9,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 dotenvExpand.expand(dotenv.config({ path: path.resolve(here, "../../../.env") }));
 
 const { requireAuth } = await import("./middleware/auth");
+const { documentRoutes } = await import("./routes/documents");
 
 const app = Fastify({
   logger: {
@@ -36,6 +37,8 @@ app.get("/api/me", { preHandler: requireAuth }, async (req) => ({
   organization: req.organization,
   role: req.memberRole,
 }));
+
+await app.register(documentRoutes, { prefix: "/api/documents" });
 
 const port = Number(process.env.API_PORT ?? 4000);
 const host = process.env.API_HOST ?? "0.0.0.0";
