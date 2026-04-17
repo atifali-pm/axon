@@ -71,12 +71,20 @@ export function DashboardClient({
             {user.name ?? user.email} — {user.email}
           </p>
         </div>
-        <button
-          onClick={onSignOut}
-          className="rounded border border-neutral-700 px-3 py-1 text-sm hover:bg-neutral-800"
-        >
-          Sign out
-        </button>
+        <div className="flex items-center gap-2">
+          <a
+            href="/chat"
+            className="rounded border border-neutral-700 px-3 py-1 text-sm hover:bg-neutral-800"
+          >
+            Chat
+          </a>
+          <button
+            onClick={onSignOut}
+            className="rounded border border-neutral-700 px-3 py-1 text-sm hover:bg-neutral-800"
+          >
+            Sign out
+          </button>
+        </div>
       </div>
 
       <section className="space-y-3 rounded-lg border border-neutral-800 bg-neutral-900 p-6">
