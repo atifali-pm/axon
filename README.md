@@ -15,9 +15,9 @@ See `docs/end_to_end_saas_blueprint.md` for the full implementation reference.
 ## Local Dev Quickstart
 
 ```bash
-# 1. Generate secrets, merge into .env
+# 1. Generate secrets (patches .env in place; re-runnable)
 cp .env.example .env
-./scripts/generate-secrets.sh >> .env
+./scripts/generate-secrets.sh
 
 # 2. Start data layer
 docker compose -f infra/docker/docker-compose.dev.yml up -d
