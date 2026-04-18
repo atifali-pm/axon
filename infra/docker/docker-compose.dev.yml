@@ -59,10 +59,33 @@ services:
       retries: 5
     networks: [app]
 
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    networks: [app]
+    # Models are pulled on first boot by a one-shot sidecar below.
+
+  ollama-pull:
+    image: ollama/ollama:latest
+    depends_on:
+      - ollama
+    networks: [app]
+    entrypoint: /bin/sh
+    command: >
+      -c "sleep 5 &&
+          OLLAMA_HOST=http://ollama:11434 ollama pull nomic-embed-text &&
+          echo 'ollama models ready'"
+    restart: "no"
+
 volumes:
   pg_data:
   redis_data:
   minio_data:
+  ollama_models:
 
 networks:
   app:

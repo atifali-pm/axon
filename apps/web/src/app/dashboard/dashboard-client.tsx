@@ -73,6 +73,12 @@ export function DashboardClient({
         </div>
         <div className="flex items-center gap-2">
           <a
+            href="/documents"
+            className="rounded border border-neutral-700 px-3 py-1 text-sm hover:bg-neutral-800"
+          >
+            Documents
+          </a>
+          <a
             href="/chat"
             className="rounded border border-neutral-700 px-3 py-1 text-sm hover:bg-neutral-800"
           >

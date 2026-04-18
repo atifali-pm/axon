@@ -33,6 +33,11 @@ await app.register(cors, {
   credentials: true,
 });
 
+const multipart = (await import("@fastify/multipart")).default;
+await app.register(multipart, {
+  limits: { fileSize: 50 * 1024 * 1024, files: 1 },
+});
+
 app.get("/health", async () => ({ ok: true, service: "api" }));
 
 app.get("/api/me", { preHandler: requireAuth }, async (req) => ({

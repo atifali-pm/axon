@@ -17,12 +17,15 @@ from langgraph.prebuilt import ToolNode
 
 from src.llm_router import get_llm
 from src.tools import TOOLS
+from src.tools.rag_search import current_org_id
 
 SYSTEM_PROMPT = (
     "You are Axon, a helpful AI assistant for an organization. "
     "You have access to tools for web search, RAG over the org's documents, "
     "and read-only database queries. Call a tool when it would produce a "
-    "better answer than your prior knowledge. Be concise."
+    "better answer than your prior knowledge. Be concise. When the user "
+    "asks about documents, contracts, policies, or anything they may have "
+    "uploaded, prefer rag_search. Always cite document titles in your answer."
 )
 
 
@@ -33,7 +36,13 @@ class AgentState(TypedDict):
 
 
 async def _call_llm(state: AgentState) -> dict[str, Any]:
-    llm = get_llm("groq").bind_tools(TOOLS)
+    # Prefer openai/gpt-oss-120b on Groq for tool-calling. Groq's Llama 3.3
+    # Instant/Versatile emits malformed function-call syntax (tool_use_failed
+    # 400) on continuation turns in current deployments. gpt-oss handles
+    # structured tool output cleanly. Fall back to Llama if gpt-oss is busy.
+    primary = get_llm("groq", model="openai/gpt-oss-120b").bind_tools(TOOLS)
+    fallback = get_llm("groq", model="llama-3.3-70b-versatile").bind_tools(TOOLS)
+    llm = primary.with_fallbacks([fallback])
     response = await llm.ainvoke(list(state["messages"]))
     return {"messages": [response]}
 
@@ -85,11 +94,15 @@ async def run_default_agent(
     org_id: str,
     conversation_id: str | None,
 ) -> dict[str, Any]:
-    state = _initial_state(message, org_id, conversation_id)
-    result = await _graph.ainvoke(state)
-    messages = [_serialize(m) for m in result["messages"]]
-    final = result["messages"][-1].content if result["messages"] else ""
-    return {"content": final, "messages": messages}
+    token = current_org_id.set(org_id)
+    try:
+        state = _initial_state(message, org_id, conversation_id)
+        result = await _graph.ainvoke(state)
+        messages = [_serialize(m) for m in result["messages"]]
+        final = result["messages"][-1].content if result["messages"] else ""
+        return {"content": final, "messages": messages}
+    finally:
+        current_org_id.reset(token)
 
 
 async def stream_default_agent(
@@ -98,24 +111,28 @@ async def stream_default_agent(
     org_id: str,
     conversation_id: str | None,
 ) -> AsyncIterator[dict[str, Any]]:
-    state = _initial_state(message, org_id, conversation_id)
-    async for event in _graph.astream_events(state, version="v2"):
-        kind = event.get("event")
-        # Stream token chunks from the LLM as the primary content.
-        if kind == "on_chat_model_stream":
-            data = event.get("data", {})
-            chunk = data.get("chunk")
-            if chunk is not None and getattr(chunk, "content", None):
-                yield {"type": "token", "content": chunk.content}
-        elif kind == "on_tool_start":
-            yield {
-                "type": "tool_start",
-                "name": event.get("name"),
-                "input": event.get("data", {}).get("input"),
-            }
-        elif kind == "on_tool_end":
-            yield {
-                "type": "tool_end",
-                "name": event.get("name"),
-                "output": str(event.get("data", {}).get("output"))[:2000],
-            }
+    token = current_org_id.set(org_id)
+    try:
+        state = _initial_state(message, org_id, conversation_id)
+        async for event in _graph.astream_events(state, version="v2"):
+            kind = event.get("event")
+            # Stream token chunks from the LLM as the primary content.
+            if kind == "on_chat_model_stream":
+                data = event.get("data", {})
+                chunk = data.get("chunk")
+                if chunk is not None and getattr(chunk, "content", None):
+                    yield {"type": "token", "content": chunk.content}
+            elif kind == "on_tool_start":
+                yield {
+                    "type": "tool_start",
+                    "name": event.get("name"),
+                    "input": event.get("data", {}).get("input"),
+                }
+            elif kind == "on_tool_end":
+                yield {
+                    "type": "tool_end",
+                    "name": event.get("name"),
+                    "output": str(event.get("data", {}).get("output"))[:2000],
+                }
+    finally:
+        current_org_id.reset(token)
