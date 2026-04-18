@@ -78,6 +78,76 @@ Axon is the reference codebase for a modern AI agent platform: agentic chat with
 | Observability | Langfuse + Prometheus + Grafana + Loki |
 | Deploy | Docker + Caddy + Cloudflare Tunnel + Oracle Cloud ARM |
 
+## Case study: how a law firm uses Axon
+
+*Representative deployment. Names are illustrative.*
+
+### Profile
+
+Sara Khan runs **Khan & Partners**, a 12-lawyer firm in Lahore specialising in commercial litigation. The firm has roughly 40,000 pages of case files, contracts, and judgments across the last eight years. She wants an AI assistant that can answer questions like *"What was the final ruling in the Akhtar v. Habib case?"* and *"Find the force-majeure clauses we drafted in 2023 shipping contracts."* She does not want her data sent to OpenAI or stored on third-party servers.
+
+A developer deploys Axon for her. The rest of this walkthrough follows what happens end to end.
+
+### Step 1. Sara creates her workspace
+
+Sara opens `https://app.khan-partners.ai` in her browser.
+
+- **Signup**: Better Auth creates a `users` row, hashes her password, and issues a session cookie that's valid for 30 days. She also creates an organisation called *Khan & Partners*. A `members` row links her user to the org with `role = owner`. `sessions.active_organization_id` now points to that org.
+- **Invite colleagues**: she invites two paralegals via `/api/auth/organization/invite`. They sign in via emailed invite links and land in the same org with `role = member`.
+
+All three users now share the same org. Every piece of data they ever create will have `organization_id` stamped on it and be fenced by Postgres Row-Level Security.
+
+### Step 2. Uploading case files
+
+A paralegal drags a 2.4 MB PDF of *Akhtar v. Habib (final judgment)* into the web upload pane.
+
+1. **Web → API**: Next.js `POST /api/documents` with the file. The API streams the bytes into MinIO (S3-compatible), creates a row in the `documents` table via a `withOrg(orgId, tx => ...)` transaction (so RLS sets the tenant GUC), and **returns immediately**. The user sees a toast within 200 ms. The heavy work happens elsewhere.
+2. **API → BullMQ**: the API enqueues a `rag.ingest` job carrying `{ documentId, source, sourceType, _meta: { orgId, jobId } }`. The job ID is also recorded in the `jobs` table so the user can track status.
+3. **Worker picks up the job**: a BullMQ worker extracts raw text from the PDF, splits it into chunks of roughly 500 tokens with 50-token overlap, and generates 768-dimensional vector embeddings for each chunk using a local Ollama model (`nomic-embed-text`). No data leaves the server.
+4. **Postgres stores the chunks**: each chunk row gets `(document_id, organization_id, content, embedding, token_count)`. The `embedding` column is a pgvector `vector(768)` with an HNSW index using cosine distance. A GIN full-text-search index is built on `content` in parallel.
+5. **Worker updates the job**: `jobs.status → completed`. Total elapsed for a 50-page PDF: ~18 seconds on a single Oracle ARM core.
+
+### Step 3. Sara asks a question
+
+Sara types *"Summarise the force-majeure clauses we drafted in 2023 shipping contracts, and cite the documents."* and hits enter.
+
+1. **Web → API**: `POST /api/chat` streams a single HTTP request to the Fastify API with her session cookie.
+2. **API → Python agents service**: the API upserts a `conversations` row, persists the user message, then proxies the request as SSE to the Python agents service. The API never calls the LLM directly — that's the agents service's job.
+3. **LangGraph starts an agent run**: the default agent is a state machine with three nodes.
+   - `llm` receives the system prompt plus the user message.
+   - `tools` executes any tool the LLM decides to call.
+   - Edges loop `llm → tools → llm` until the LLM returns a final answer.
+4. **The agent decides to use RAG**: Llama 3.3 on Groq emits a tool call `rag_search({query: "force majeure 2023 shipping contracts"})`.
+5. **The RAG tool runs inside Sara's org**: the tool opens a transaction that sets `app.current_org_id = <Khan & Partners org id>`. It runs a hybrid SQL query that combines pgvector cosine similarity (weighted 70%) and Postgres FTS `ts_rank` (30%) on `chunks`. RLS guarantees the tool cannot see any other tenant's rows, even if the agent tries to manipulate `organization_id` directly.
+6. **Top 10 chunks come back**: the agent receives titles, excerpts, and similarity scores. It calls Groq again with the retrieved context.
+7. **Stream tokens to Sara**: the Python service emits `{type: "token", content: "..."}` SSE frames. Fastify proxies them to Next.js, which appends each token to the assistant bubble in real time. Sara sees the answer type itself out.
+8. **Persist the exchange**: when the stream ends, the API writes the complete assistant message to `messages` under the same conversation ID and the same org.
+9. **Observe the run**: Langfuse records the full trace — prompt, completion, tool calls, token counts, latency per node, and cost. Filtered per org, so the firm can see exactly what each user is asking.
+
+Total elapsed from hitting enter to the last token: roughly 2.5 seconds for a 400-token answer with one RAG lookup.
+
+### Step 4. Safety properties that hold automatically
+
+- Sara's paralegal cannot accidentally read another firm's case files. RLS rejects the query before a single byte leaves Postgres.
+- If the developer writing a new feature forgets a `where organization_id = ?` clause, the database still returns zero cross-tenant rows.
+- If Groq rate-limits, the LLM router falls back to Gemini automatically via a `tenacity` retry chain. Sara never sees a 500.
+- If the agent takes 30 seconds, the API doesn't block. The chat uses SSE for streaming and the queue for any genuinely long-running work, so the Fastify event loop is never pinned.
+- If the Oracle VM reboots, BullMQ resumes in-flight jobs from Redis and Postgres is restored from the last backup to Cloudflare R2. No data loss.
+
+### Step 5. Cost
+
+| Component | Traditional SaaS | Axon |
+|---|---|---|
+| VM | $40–100/mo | **Oracle Cloud Always Free ARM (4 cores, 24 GB)** |
+| Reverse proxy + HTTPS | $10–20/mo | **Caddy** (free, auto-HTTPS) |
+| LLM inference (moderate usage) | $50–500/mo | **Groq + Gemini free tiers** |
+| Vector DB | $70+/mo (Pinecone) | **Postgres + pgvector** (already running) |
+| Observability | $50+/mo (Datadog) | **Langfuse + Grafana/Loki/Prom self-hosted** |
+| Object storage | $5–30/mo | **MinIO self-hosted** or **Cloudflare R2 free tier** |
+| **Total** | **$225–780/mo** | **~$0.17/mo** (a `.xyz` domain) |
+
+Sara's firm pays nothing ongoing for the platform itself. Their only cost is the developer's deployment fee and a domain.
+
 ## Build phases
 
 | Phase | Milestone | Status |
@@ -85,25 +155,32 @@ Axon is the reference codebase for a modern AI agent platform: agentic chat with
 | 1 | Monorepo + Docker data layer + 4 app shells | ✅ shipped |
 | 2 | Drizzle schema + Better Auth + multi-tenant + **RLS enforced at runtime** | ✅ shipped |
 | 3 | BullMQ queue system + workers + Bull Board | ✅ shipped |
-| 4 | Python agents + LangGraph + multi-LLM router + SSE chat | ⏳ next |
-| 5 | RAG pipeline: upload → chunk → embed → hybrid search | ⏳ |
+| 4 | Python agents + LangGraph + multi-LLM router + SSE chat | ✅ part 1 shipped |
+| 5 | RAG pipeline: upload → chunk → embed → hybrid search | ⏳ next |
 | 6 | MCP servers (postgres, github, stripe, custom) | ⏳ |
 | 7 | Observability (Langfuse, LGTM stack, dashboards, alerts) | ⏳ |
 | 8 | Production deploy (Oracle Cloud + Cloudflare + CI/CD + billing) | ⏳ |
 
 Each phase produces something runnable. See [CLAUDE.md](CLAUDE.md) for the full task breakdown.
 
-## Screenshots
+## Roadmap
 
-Captured via Playwright; regenerate with `pnpm screenshots`. Placeholder sizes are suggestions.
+Beyond the 8-phase core build:
+
+- **Mobile companion app (Android)** — native client with push notifications for long-running agent runs, on-device voice input, and offline message queue that replays when the user comes back online. Planned after Phase 8.
+- **Agent marketplace** — shareable agent configs (system prompt + tool set + allowed LLMs) that orgs can fork into their workspace.
+- **Fine-tune loop** — capture thumbs-up/down on every assistant message, feed the high-quality pairs back as few-shot examples or LoRA training data.
+- **Self-hosted embedding alternatives** — beyond Ollama `nomic-embed-text`, support BGE and Qwen embedding models for larger context and better cross-lingual retrieval.
+
+## Screenshots
 
 | Landing | Signup | Dashboard (orgs) |
 |---|---|---|
 | ![landing](docs/images/landing.png) | ![signup](docs/images/signup.png) | ![dashboard](docs/images/dashboard.png) |
 
-| Bull Board | API /api/me | Schema diagram |
+| Queues overview | API /api/me | Recent jobs |
 |---|---|---|
-| ![bull-board](docs/images/bull-board.png) | ![api-me](docs/images/api-me.png) | ![schema](docs/images/schema.png) |
+| ![queues](docs/images/bull-board.png) | ![api-me](docs/images/api-me.png) | ![jobs](docs/images/bull-board-jobs.png) |
 
 ## What makes this different
 
@@ -114,84 +191,6 @@ Captured via Playwright; regenerate with `pnpm screenshots`. Placeholder sizes a
 **Typed across the workspace.** Shared queue-name constants + per-queue job types live in `@axon/shared/queues`. The API's `enqueue()`, the worker's processors, and the job polling endpoint all agree at compile time.
 
 **Cost discipline.** The whole production stack runs on free tiers: Oracle Cloud Always Free ARM VM, Cloudflare Tunnel, Groq + Gemini free tiers, Resend 3k/mo, MinIO self-hosted. ~$2/yr for a `.xyz` domain is the only recurring cost.
-
-## Local dev
-
-```bash
-# 1. Secrets (patches .env in place; re-runnable)
-cp .env.example .env
-./scripts/generate-secrets.sh
-
-# 2. Data layer (Postgres+pgvector, Redis, MinIO)
-pnpm docker:up
-
-# 3. Install + migrate
-pnpm install
-pnpm --filter @axon/db migrate
-
-# 4. Start services
-pnpm dev
-```
-
-### Prerequisites
-
-- Node.js 20+, pnpm 9+ (`corepack enable`)
-- Python 3.12+ (agents service, from Phase 4)
-- Docker + Docker Compose
-
-### Access points
-
-| Service | URL |
-|---|---|
-| Web | http://localhost:3000 (set `WEB_PORT` to override, e.g. 3100) |
-| API | http://localhost:4000 |
-| Agents (Python) | http://localhost:8000 |
-| Bull Board | http://localhost:4000/admin/queues (owner/admin only) |
-| Postgres | localhost:5432 |
-| Redis | localhost:6379 |
-| MinIO | http://localhost:9001 |
-
-### Health checks
-
-```bash
-curl http://localhost:4000/health
-curl http://localhost:3000/api/health
-curl http://localhost:8000/health   # Phase 4+
-```
-
-## Repo layout
-
-```
-axon/
-├── apps/
-│   ├── web/          Next.js 15 frontend
-│   ├── api/          Fastify 5 backend + BullMQ producer
-│   ├── worker/       BullMQ consumers (7 queues)
-│   └── agents/       Python + FastAPI + LangGraph
-├── packages/
-│   ├── db/           Drizzle schema + migrations + withOrg helper
-│   ├── shared/       Cross-service types, queue names, auth factory
-│   ├── ui/           Shared shadcn/ui components
-│   └── mcp-servers/  MCP servers (postgres, github, stripe, custom)
-├── infra/
-│   ├── docker/       Compose dev + prod + observability
-│   ├── observability/ Prometheus, Loki, Promtail, Grafana
-│   ├── oracle-vm/    Production VM setup
-│   └── cloudflare/   Tunnel config
-├── scripts/          bootstrap, secrets, screenshots, backup
-└── docs/             Architecture blueprint, portfolio pack
-```
-
-## Freelance / hire
-
-Built by [Atif Ali](https://github.com/atifali-pm). Available on Upwork and Fiverr for:
-- AI agent platforms (LangGraph, LangChain, MCP)
-- Multi-tenant SaaS with per-tenant RAG
-- Queue-first Node backends (BullMQ, Fastify)
-- Postgres performance + RLS + pgvector tuning
-- Self-hosted $0-infra production deploys
-
-See [docs/portfolio/](docs/portfolio/) for pitch copy, case study, and architecture one-pager.
 
 ## License
 
