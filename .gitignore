@@ -47,5 +47,5 @@ Thumbs.db
 # Generated
 drizzle/meta/_journal.json.bak
 
-# Claude Code local overrides
-.claude/settings.local.json
+# Claude Code (local-only; do not commit any of it)
+.claude/
