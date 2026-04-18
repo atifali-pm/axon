@@ -13,6 +13,7 @@ const { documentRoutes } = await import("./routes/documents");
 const { jobRoutes } = await import("./routes/jobs");
 const { chatRoutes } = await import("./routes/chat");
 const { registerBullBoard } = await import("./routes/admin");
+const { metricsPlugin } = await import("./plugins/metrics");
 
 const app = Fastify({
   logger: {
@@ -32,6 +33,8 @@ await app.register(cors, {
   origin: [appUrl, ...extraOrigins],
   credentials: true,
 });
+
+await app.register(metricsPlugin);
 
 const multipart = (await import("@fastify/multipart")).default;
 await app.register(multipart, {

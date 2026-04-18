@@ -1,0 +1,62 @@
+groups:
+  - name: axon-core
+    interval: 30s
+    rules:
+      - alert: ApiDown
+        expr: up{job="axon-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Axon API is down"
+          description: "The Axon API /metrics scrape has failed for 2+ minutes."
+
+      - alert: ApiHighErrorRate
+        expr: |
+          sum(rate(axon_http_requests_total{status=~"5.."}[5m]))
+            /
+          sum(rate(axon_http_requests_total[5m]))
+            > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Axon API 5xx rate >5% for 5 minutes"
+          description: "Request error rate is {{ $value | humanizePercentage }}."
+
+      - alert: ApiHighLatencyP95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(axon_http_request_duration_seconds_bucket[5m]))
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Axon API p95 latency >1s"
+          description: "p95 is {{ $value | humanizeDuration }}."
+
+      - alert: PostgresDown
+        expr: up{job="postgres"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Postgres exporter is down"
+
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis exporter is down"
+
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node memory >90% used"

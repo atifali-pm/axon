@@ -19,6 +19,7 @@ from langgraph.prebuilt import ToolNode
 
 from src.llm_router import get_llm
 from src.mcp_bridge import load_mcp_tools
+from src.observability import langfuse_callback
 from src.tools import TOOLS
 from src.tools.rag_search import current_org_id
 
@@ -102,6 +103,17 @@ async def _tools_for(org_id: str) -> list:
     return [*TOOLS, *mcp_tools]
 
 
+def _run_config(org_id: str, conversation_id: str | None) -> dict[str, Any]:
+    cfg: dict[str, Any] = {
+        "metadata": {"org_id": org_id, "conversation_id": conversation_id},
+        "tags": [f"org:{org_id}"],
+    }
+    cb = langfuse_callback()
+    if cb is not None:
+        cfg["callbacks"] = [cb]
+    return cfg
+
+
 async def run_default_agent(
     *,
     message: str,
@@ -113,7 +125,7 @@ async def run_default_agent(
         tools = await _tools_for(org_id)
         graph = _build_graph(tools)
         state = _initial_state(message, org_id, conversation_id)
-        result = await graph.ainvoke(state)
+        result = await graph.ainvoke(state, config=_run_config(org_id, conversation_id))
         messages = [_serialize(m) for m in result["messages"]]
         final = result["messages"][-1].content if result["messages"] else ""
         return {"content": final, "messages": messages}
@@ -132,7 +144,9 @@ async def stream_default_agent(
         tools = await _tools_for(org_id)
         graph = _build_graph(tools)
         state = _initial_state(message, org_id, conversation_id)
-        async for event in graph.astream_events(state, version="v2"):
+        async for event in graph.astream_events(
+            state, version="v2", config=_run_config(org_id, conversation_id)
+        ):
             kind = event.get("event")
             if kind == "on_chat_model_stream":
                 data = event.get("data", {})
