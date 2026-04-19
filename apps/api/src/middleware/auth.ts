@@ -6,7 +6,14 @@ import { auth } from "../lib/auth";
 declare module "fastify" {
   interface FastifyRequest {
     user: { id: string; email: string; name: string | null };
-    organization: { id: string; plan: string; slug: string; name: string };
+    organization: {
+      id: string;
+      plan: string;
+      slug: string;
+      name: string;
+      stripeCustomerId: string | null;
+      stripeSubscriptionId: string | null;
+    };
     memberRole: "owner" | "admin" | "member" | "viewer";
   }
 }
@@ -49,6 +56,13 @@ export async function requireAuth(req: FastifyRequest, reply: FastifyReply) {
   }
 
   const org = member.organization;
-  req.organization = { id: org.id, plan: org.plan, slug: org.slug, name: org.name };
+  req.organization = {
+    id: org.id,
+    plan: org.plan,
+    slug: org.slug,
+    name: org.name,
+    stripeCustomerId: org.stripeCustomerId,
+    stripeSubscriptionId: org.stripeSubscriptionId,
+  };
   req.memberRole = member.role;
 }

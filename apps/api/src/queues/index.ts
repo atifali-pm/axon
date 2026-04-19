@@ -66,16 +66,18 @@ export async function enqueue<Q extends QueueName>(
   data: BareData<Q>,
   orgId: string,
 ) {
-  const [row] = await db
+  const rows = await db
     .insert(schema.jobs)
     .values({ organizationId: orgId, type: queueName, input: data as object })
     .returning();
+  const row = rows[0];
+  if (!row) throw new Error("failed to insert jobs row");
 
-  const queue = queues[queueName] as Queue<JobDataMap[Q]>;
+  const queue = queues[queueName] as unknown as Queue;
   await queue.add(jobName, {
     ...data,
     _meta: { orgId, jobId: row.id, enqueuedAt: Date.now() },
-  } as JobDataMap[Q]);
+  });
 
   return row;
 }

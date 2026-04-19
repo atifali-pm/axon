@@ -39,7 +39,7 @@ export async function chatRoutes(app: FastifyInstance) {
         });
       }
       if (!c) {
-        const [row] = await tx
+        const rows = await tx
           .insert(schema.conversations)
           .values({
             organizationId: orgId,
@@ -47,8 +47,9 @@ export async function chatRoutes(app: FastifyInstance) {
             title: body.message!.slice(0, 80),
           })
           .returning();
-        c = row;
+        c = rows[0];
       }
+      if (!c) throw new Error("failed to upsert conversation");
       await tx.insert(schema.messages).values({
         conversationId: c.id,
         role: "user",

@@ -1,0 +1,169 @@
+########################################################################
+# Axon production compose (Oracle Cloud ARM VM).
+#
+# Pulls pre-built multi-arch images from GHCR (pushed by deploy-*.yml).
+# No ports are exposed to the public internet — Cloudflare Tunnel fronts
+# Caddy, and Caddy reverse-proxies every subdomain internally.
+#
+# Bring up:   docker compose --env-file .env -f docker-compose.prod.yml pull
+#             docker compose --env-file .env -f docker-compose.prod.yml up -d
+########################################################################
+
+name: axon-prod
+
+x-env: &axon-env
+  NODE_ENV: production
+  DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-axon}
+  DATABASE_URL_APP: postgresql://axon_app:${AXON_APP_PASSWORD:?set AXON_APP_PASSWORD}@postgres:5432/${POSTGRES_DB:-axon}
+  REDIS_URL: redis://default:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis:6379
+  S3_ENDPOINT: http://minio:9000
+  S3_BUCKET: uploads
+  MINIO_USER: ${MINIO_USER:-minioadmin}
+  MINIO_PASSWORD: ${MINIO_PASSWORD:?set MINIO_PASSWORD}
+  AGENT_SERVICE_URL: http://agents:8000
+  AGENT_API_KEY: ${AGENT_API_KEY:?set AGENT_API_KEY}
+  OLLAMA_BASE_URL: http://ollama:11434
+  BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET}
+  APP_URL: https://app.${DOMAIN:?set DOMAIN}
+  API_URL: https://api.${DOMAIN}
+  NEXT_PUBLIC_API_URL: https://api.${DOMAIN}
+  BETTER_AUTH_TRUSTED_ORIGINS: https://app.${DOMAIN}
+  LANGFUSE_HOST: http://langfuse:3000
+  LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+  LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+  STRIPE_PRICE_STARTER: ${STRIPE_PRICE_STARTER}
+  STRIPE_PRICE_PRO: ${STRIPE_PRICE_PRO}
+  GROQ_API_KEY: ${GROQ_API_KEY}
+  GEMINI_API_KEY: ${GEMINI_API_KEY}
+
+services:
+  # --- reverse proxy + auto-HTTPS ---
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN}
+    networks: [edge, app]
+    # Ports exposed only to the tunnel network, not the public internet.
+    expose: ["80", "443"]
+
+  # --- public tunnel (no open ports on the VM itself) ---
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on: [caddy]
+    networks: [edge]
+
+  # --- data layer ---
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-axon}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      retries: 10
+    networks: [app]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: >
+      redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+      --maxmemory 1gb --maxmemory-policy noeviction
+    volumes: [redis_data:/data]
+    networks: [app]
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD}
+    volumes: [minio_data:/data]
+    networks: [app]
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes: [ollama_models:/root/.ollama]
+    networks: [app]
+    # Pull nomic-embed-text out of band after first deploy:
+    # docker compose exec ollama ollama pull nomic-embed-text
+
+  langfuse:
+    image: langfuse/langfuse:2
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/langfuse
+      NEXTAUTH_SECRET: ${LANGFUSE_SECRET:?set LANGFUSE_SECRET}
+      SALT: ${LANGFUSE_SALT:?set LANGFUSE_SALT}
+      NEXTAUTH_URL: https://langfuse.${DOMAIN}
+      TELEMETRY_ENABLED: "false"
+    networks: [app]
+
+  # --- application services ---
+  api:
+    image: ghcr.io/${GITHUB_REPOSITORY:?set GITHUB_REPOSITORY to owner/repo}/axon-api:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment: *axon-env
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+    networks: [app]
+
+  worker:
+    image: ghcr.io/${GITHUB_REPOSITORY}/axon-worker:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment: *axon-env
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+    networks: [app]
+    deploy:
+      replicas: 2
+
+  agents:
+    image: ghcr.io/${GITHUB_REPOSITORY}/axon-agents:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment: *axon-env
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [app]
+
+  web:
+    image: ghcr.io/${GITHUB_REPOSITORY}/axon-web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment: *axon-env
+    depends_on: [api]
+    networks: [app]
+
+volumes:
+  pg_data:
+  redis_data:
+  minio_data:
+  ollama_models:
+  caddy_data:
+  caddy_config:
+
+networks:
+  app:
+    driver: bridge
+  edge:
+    driver: bridge

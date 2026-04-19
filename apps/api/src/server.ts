@@ -12,6 +12,7 @@ const { requireAuth } = await import("./middleware/auth");
 const { documentRoutes } = await import("./routes/documents");
 const { jobRoutes } = await import("./routes/jobs");
 const { chatRoutes } = await import("./routes/chat");
+const { billingRoutes, stripeWebhookRoutes } = await import("./routes/billing");
 const { registerBullBoard } = await import("./routes/admin");
 const { metricsPlugin } = await import("./plugins/metrics");
 
@@ -52,6 +53,8 @@ app.get("/api/me", { preHandler: requireAuth }, async (req) => ({
 await app.register(documentRoutes, { prefix: "/api/documents" });
 await app.register(jobRoutes, { prefix: "/api/jobs" });
 await app.register(chatRoutes, { prefix: "/api/chat" });
+await app.register(billingRoutes, { prefix: "/api/billing" });
+await app.register(stripeWebhookRoutes, { prefix: "/webhooks" });
 await registerBullBoard(app);
 
 const port = Number(process.env.API_PORT ?? 4000);

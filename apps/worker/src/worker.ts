@@ -1,6 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { QUEUE_NAMES } from "@axon/shared/queues";
+import { type JobMeta, QUEUE_NAMES } from "@axon/shared/queues";
 import { type Job, type Processor, Worker } from "bullmq";
 import dotenv from "dotenv";
 import dotenvExpand from "dotenv-expand";
@@ -26,7 +26,7 @@ const { stripeWebhookProcessor } = await import("./processors/stripe-webhook");
  * markFailed on throw; the error then propagates so BullMQ retries per its
  * backoff policy.
  */
-function wrap<T extends { _meta: { jobId: string; orgId: string } }>(
+function wrap<T extends { _meta: JobMeta }>(
   name: string,
   fn: Processor<T>,
 ): Processor<T> {

@@ -84,6 +84,12 @@ export function DashboardClient({
           >
             Chat
           </a>
+          <a
+            href="/billing"
+            className="rounded border border-neutral-700 px-3 py-1 text-sm hover:bg-neutral-800"
+          >
+            Billing
+          </a>
           <button
             onClick={onSignOut}
             className="rounded border border-neutral-700 px-3 py-1 text-sm hover:bg-neutral-800"

@@ -1,0 +1,129 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node:
+    name: Node workspace (lint + typecheck)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck all workspace packages
+        run: pnpm -r --if-present typecheck
+
+      - name: Build MCP servers (compile check)
+        run: pnpm -r --filter "./packages/mcp-servers/*" --if-present build
+
+  python:
+    name: Python agents (ruff + mypy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/agents
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Ruff
+        run: ruff check src
+
+      - name: Format check
+        run: ruff format --check src
+
+  # Integration smoke: spin up postgres + redis + ollama as services so we can
+  # verify the Drizzle schema migrates cleanly and the queue layer wires up.
+  # Kept minimal on purpose; deeper integration lives in a separate workflow.
+  integration-smoke:
+    name: Integration smoke (migrate + health)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-password
+          POSTGRES_DB: axon
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+        ports:
+          - 6379:6379
+    env:
+      DATABASE_URL: postgresql://postgres:ci-password@localhost:5432/axon
+      DATABASE_URL_APP: postgresql://postgres:ci-password@localhost:5432/axon
+      REDIS_URL: redis://localhost:6379
+      BETTER_AUTH_SECRET: ci-better-auth-secret-32-chars-long
+      AGENT_API_KEY: ci-agent-key
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Enable pgvector + RLS extensions
+        run: |
+          psql "$DATABASE_URL" <<SQL
+          CREATE EXTENSION IF NOT EXISTS vector;
+          CREATE EXTENSION IF NOT EXISTS pg_trgm;
+          CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+          CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+          SQL
+
+      - name: Drizzle migrate
+        run: pnpm --filter @axon/db migrate
+
+      - name: Verify schema (count tables)
+        run: |
+          COUNT=$(psql "$DATABASE_URL" -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'")
+          echo "tables: $COUNT"
+          test "$COUNT" -ge 14

@@ -1,0 +1,61 @@
+# Axon production Caddyfile.
+#
+# Runs behind cloudflared, so TLS is actually terminated at Cloudflare's edge.
+# We still auto-HTTPS internally over the tunnel by binding each host; Caddy
+# will pull LE certs but Cloudflare presents its own to end users.
+#
+# The `{$DOMAIN}` placeholder is filled from the DOMAIN env var set in the
+# compose file.
+
+{
+	# Global options
+	email ops@{$DOMAIN}
+	# Trust Cloudflare's client IP header so rate limits / logs are accurate.
+	servers {
+		trusted_proxies cloudflare
+	}
+}
+
+app.{$DOMAIN} {
+	encode gzip zstd
+	reverse_proxy web:3000
+}
+
+api.{$DOMAIN} {
+	encode gzip
+	# Higher limits for file upload + SSE streaming.
+	handle /webhooks/stripe {
+		reverse_proxy api:4000 {
+			flush_interval -1
+		}
+	}
+	handle /api/chat* {
+		reverse_proxy api:4000 {
+			flush_interval -1
+			transport http {
+				read_timeout 300s
+			}
+		}
+	}
+	handle {
+		reverse_proxy api:4000
+	}
+}
+
+langfuse.{$DOMAIN} {
+	reverse_proxy langfuse:3000
+}
+
+grafana.{$DOMAIN} {
+	reverse_proxy grafana:3000
+}
+
+# Admin: Bull Board behind basic-auth AND the app session.
+# The API itself gates /admin/queues by owner/admin role; basic-auth is just
+# a second fence so drive-by probes never hit the Fastify handler.
+admin.{$DOMAIN} {
+	basicauth {
+		admin {env.CADDY_ADMIN_HASH}
+	}
+	reverse_proxy api:4000
+}

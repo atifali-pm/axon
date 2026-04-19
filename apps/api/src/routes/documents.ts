@@ -49,7 +49,7 @@ export async function documentRoutes(app: FastifyInstance) {
     await putObject(key, bytes, mime);
 
     const doc = await withOrg(orgId, async (tx) => {
-      const [row] = await tx
+      const rows = await tx
         .insert(schema.documents)
         .values({
           organizationId: orgId,
@@ -63,8 +63,9 @@ export async function documentRoutes(app: FastifyInstance) {
           },
         })
         .returning();
-      return row;
+      return rows[0];
     });
+    if (!doc) throw new Error("failed to insert document");
 
     const jobRow = await enqueue(
       QUEUE_NAMES.ragIngest,
@@ -100,7 +101,7 @@ export async function documentRoutes(app: FastifyInstance) {
     }
 
     const doc = await withOrg(orgId, async (tx) => {
-      const [row] = await tx
+      const rows = await tx
         .insert(schema.documents)
         .values({
           organizationId: orgId,
@@ -109,8 +110,9 @@ export async function documentRoutes(app: FastifyInstance) {
           metadata: { sourceType: body.sourceType },
         })
         .returning();
-      return row;
+      return rows[0];
     });
+    if (!doc) throw new Error("failed to insert document");
 
     const jobRow = await enqueue(
       QUEUE_NAMES.ragIngest,

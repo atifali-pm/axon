@@ -1,0 +1,106 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # One build job per app, all pushing multi-arch images (linux/arm64 + amd64)
+  # to GHCR under ghcr.io/<owner>/<repo>/axon-<name>:<sha>.
+  build:
+    name: Build ${{ matrix.app }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { app: api, context: ., dockerfile: apps/api/Dockerfile }
+          - { app: worker, context: ., dockerfile: apps/worker/Dockerfile }
+          - { app: web, context: ., dockerfile: apps/web/Dockerfile }
+          - { app: agents, context: apps/agents, dockerfile: apps/agents/Dockerfile }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lowercase repo name
+        id: repo
+        run: echo "name=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/${{ steps.repo.outputs.name }}/axon-${{ matrix.app }}
+          tags: |
+            type=sha,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          target: prod
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+
+  # SSH into the Oracle VM and run `docker compose pull && up -d` with the new
+  # image tags. Requires DEPLOY_SSH_KEY (private key), DEPLOY_SSH_HOST (ip/dns),
+  # DEPLOY_SSH_USER, DEPLOY_PATH (e.g. /opt/axon) secrets.
+  ssh-deploy:
+    name: Deploy to Oracle VM
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy compose files to VM
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: "infra/docker/docker-compose.prod.yml,infra/docker/Caddyfile,infra/docker/init-db/01-init.sql,packages/db/drizzle/**"
+          target: ${{ secrets.DEPLOY_PATH }}
+          strip_components: 0
+
+      - name: Pull images + up
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -e
+            cd ${{ secrets.DEPLOY_PATH }}
+            export IMAGE_TAG=sha-$(echo ${{ github.sha }} | cut -c1-7)
+            export GITHUB_REPOSITORY=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')
+            cd infra/docker
+            docker compose --env-file ${{ secrets.DEPLOY_PATH }}/.env -f docker-compose.prod.yml pull
+            docker compose --env-file ${{ secrets.DEPLOY_PATH }}/.env -f docker-compose.prod.yml up -d --remove-orphans
+            docker compose --env-file ${{ secrets.DEPLOY_PATH }}/.env -f docker-compose.prod.yml run --rm api node -e "require('child_process').execSync('cd /app/packages/db && pnpm migrate', {stdio:'inherit'})" || true
+            docker image prune -f
