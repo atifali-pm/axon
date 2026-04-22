@@ -1,6 +1,9 @@
+import { db, schema } from "@axon/db";
 import type { AgentRunData } from "@axon/shared/queues";
 import type { Job } from "bullmq";
+import { eq } from "drizzle-orm";
 import { logger } from "../lib/logger";
+import { pushToUser } from "../lib/push";
 
 const AGENT_URL = process.env.AGENT_SERVICE_URL ?? "http://localhost:8100";
 const AGENT_KEY = process.env.AGENT_API_KEY;
@@ -46,6 +49,29 @@ export async function agentRunProcessor(job: Job<AgentRunData>) {
     },
     "agent.run completed",
   );
+
+  // Push the user (all registered devices) so mobile gets a notification
+  // even when the app is backgrounded. Only fires for async runs (which
+  // carry conversationId so we can look up the owner). Runs > 5s benefit
+  // most; short conversational turns are already streamed directly.
+  if (latencyMs > 3_000 && conversationId) {
+    try {
+      const conv = await db.query.conversations.findFirst({
+        where: eq(schema.conversations.id, conversationId),
+        columns: { userId: true, title: true },
+      });
+      if (conv?.userId) {
+        const preview = (body.content ?? "").slice(0, 120);
+        await pushToUser(conv.userId, {
+          title: conv.title ?? "Axon reply",
+          body: preview,
+          data: { conversationId, jobId: _meta.jobId },
+        });
+      }
+    } catch (err) {
+      logger.warn({ err }, "push notification failed (non-fatal)");
+    }
+  }
 
   return {
     content: body.content,

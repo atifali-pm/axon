@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { api, getToken, setToken } from "./api";
+import { registerForPush } from "./push";
 
 type Me = {
   user: { id: string; email: string; name: string | null };
@@ -41,6 +42,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         organization: meResp.organization,
         role: meResp.role,
       });
+      // Fire-and-forget push registration. /api/push/register is idempotent
+      // (upsert by user_id+token), so safe to call on every refresh.
+      void registerForPush();
     } else {
       setMe(null);
     }

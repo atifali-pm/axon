@@ -13,6 +13,7 @@ import EventSource from "react-native-sse";
 import { useAuth } from "@/lib/auth-context";
 import { apiUrl, getToken } from "@/lib/api";
 import { enqueue as queueSave, peek as queueRead, remove as queueRemove } from "@/lib/offline-queue";
+import { VoiceButton } from "@/components/VoiceButton";
 
 type Msg = { id: string; role: "user" | "assistant"; content: string; queued?: boolean };
 
@@ -231,6 +232,11 @@ export default function Chat() {
       />
 
       <View className="flex-row gap-2 p-3 border-t border-neutral-800">
+        <VoiceButton
+          onTranscribed={(text) =>
+            setInput((prev) => (prev ? `${prev.trimEnd()} ${text}` : text))
+          }
+        />
         <TextInput
           value={input}
           onChangeText={setInput}
@@ -240,6 +246,7 @@ export default function Chat() {
           editable={!busy}
           onSubmitEditing={send}
           returnKeyType="send"
+          multiline
         />
         <Pressable
           onPress={send}
