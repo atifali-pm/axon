@@ -13,10 +13,12 @@
   "dependencies": {
     "@axon/shared": "workspace:^",
     "@expo/vector-icons": "^14.0.4",
+    "@react-native-community/netinfo": "^12.0.1",
     "@react-navigation/native": "^7.0.13",
     "@react-navigation/native-stack": "^7.1.14",
     "expo": "~52.0.20",
     "expo-constants": "~17.0.3",
+    "expo-document-picker": "^55.0.13",
     "expo-linking": "~7.0.3",
     "expo-router": "~4.0.14",
     "expo-secure-store": "~14.0.0",

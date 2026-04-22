@@ -99,4 +99,26 @@ export const api = {
   async documents(): Promise<{ documents: Array<{ id: string; title: string; chunkCount: number; createdAt: string }> }> {
     return request(`/api/documents`);
   },
+  async uploadDocument(asset: { uri: string; name: string; mimeType?: string | null }): Promise<{ document: { id: string; title: string }; jobId: string }> {
+    const token = await getToken();
+    if (!token) throw new Error("not signed in");
+    const form = new FormData();
+    // React Native supports the {uri, name, type} shape on FormData.append.
+    // Cast to Blob so TS types are happy across RN + web.
+    form.append("file", {
+      uri: asset.uri,
+      name: asset.name,
+      type: asset.mimeType ?? "application/octet-stream",
+    } as unknown as Blob);
+    const res = await fetch(`${apiUrl()}/api/documents/upload`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      throw new Error(`${res.status}: ${text.slice(0, 400)}`);
+    }
+    return JSON.parse(text);
+  },
 };
