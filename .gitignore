@@ -53,6 +53,9 @@ drizzle/meta/_journal.json.bak
 .expo-shared/
 **/web-build/
 **/dist-mobile/
+apps/mobile/secrets/
+apps/mobile/google-services.json
+apps/mobile/GoogleService-Info.plist
 
 # Claude Code (local-only; do not commit any of it)
 .claude/

@@ -1,0 +1,62 @@
+name: Mobile
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/mobile/**"
+      - "packages/shared/**"
+      - ".github/workflows/mobile.yml"
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "EAS build profile"
+        required: true
+        default: "preview"
+        type: choice
+        options:
+          - development
+          - preview
+          - production
+
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: EAS Build (${{ github.event.inputs.profile || 'preview' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # Skip automatically when EXPO_TOKEN isn't configured so new-repo
+    # pushes don't fail red. Flip the secret on once the Expo account is
+    # ready; subsequent pushes will build.
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.MOBILE_BUILDS_ENABLED == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - name: Install eas-cli
+        run: npm install -g eas-cli
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build on EAS
+        working-directory: apps/mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          PROFILE="${{ github.event.inputs.profile || 'preview' }}"
+          eas build --profile "$PROFILE" --platform android --non-interactive --wait
+
+  # Submission is manual via `eas submit` once a build succeeds. Automating
+  # it can break review by pushing untested artifacts to the store; we
+  # prefer an explicit human gate. See apps/mobile/RELEASE.md.
