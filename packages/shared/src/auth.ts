@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Db } from "@axon/db";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { organization } from "better-auth/plugins";
+import { bearer, organization } from "better-auth/plugins";
 
 type AuthConfig = {
   db: Db;
@@ -31,6 +31,11 @@ export function createAuth({ db, baseUrl, secret, trustedOrigins }: AuthConfig) 
       updateAge: 60 * 60 * 24,
     },
     plugins: [
+      // Returns the session token in the POST /sign-in response and accepts
+      // `Authorization: Bearer <token>` on subsequent requests. Mobile client
+      // uses this instead of cookies because RN's fetch + secure-cookie
+      // handling across hosts is painful.
+      bearer(),
       organization({
         allowUserToCreateOrganization: true,
         creatorRole: "owner",

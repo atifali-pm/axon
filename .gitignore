@@ -46,6 +46,13 @@ Thumbs.db
 
 # Generated
 drizzle/meta/_journal.json.bak
+*.tsbuildinfo
+
+# Expo / React Native
+.expo/
+.expo-shared/
+**/web-build/
+**/dist-mobile/
 
 # Claude Code (local-only; do not commit any of it)
 .claude/

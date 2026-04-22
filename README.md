@@ -167,7 +167,10 @@ Each phase produces something runnable. See [CLAUDE.md](CLAUDE.md) for the full 
 
 Beyond the 8-phase core build:
 
-- **Mobile companion app (Android)** — native client with push notifications for long-running agent runs, on-device voice input, and offline message queue that replays when the user comes back online. Planned after Phase 8.
+- **Phase 9 — Mobile companion app (Android + iOS via Expo)** ✅ part 1 shipped
+  - Part 1: Expo SDK 52 scaffold in `apps/mobile/`, Better Auth `bearer()` plugin for mobile token flow, email/password login, streaming chat via `react-native-sse`, document list with chunk counts
+  - Part 2 (planned): push notifications for long-running agent runs, voice input, document upload from mobile, offline message queue that replays on reconnect
+  - Part 3 (planned): EAS builds to Play Store + App Store, GitHub Actions workflow for `eas build`
 - **Agent marketplace** — shareable agent configs (system prompt + tool set + allowed LLMs) that orgs can fork into their workspace.
 - **Fine-tune loop** — capture thumbs-up/down on every assistant message, feed the high-quality pairs back as few-shot examples or LoRA training data.
 - **Self-hosted embedding alternatives** — beyond Ollama `nomic-embed-text`, support BGE and Qwen embedding models for larger context and better cross-lingual retrieval.
