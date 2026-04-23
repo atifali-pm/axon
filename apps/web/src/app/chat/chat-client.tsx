@@ -1,8 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type Msg = { role: "user" | "assistant"; content: string };
+
+type Template = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+};
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
@@ -12,6 +19,15 @@ export function ChatClient() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [templateId, setTemplateId] = useState<string>("");
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/agents`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : { templates: [] }))
+      .then((d: { templates: Template[] }) => setTemplates(d.templates ?? []))
+      .catch(() => {});
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -20,14 +36,23 @@ export function ChatClient() {
     setInput("");
     setError(null);
     setLoading(true);
-    setMessages((m) => [...m, { role: "user", content: message }, { role: "assistant", content: "" }]);
+    setMessages((m) => [
+      ...m,
+      { role: "user", content: message },
+      { role: "assistant", content: "" },
+    ]);
 
     try {
       const res = await fetch(`${API_URL}/api/chat`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, conversationId, stream: true }),
+        body: JSON.stringify({
+          message,
+          conversationId,
+          templateId: templateId || undefined,
+          stream: true,
+        }),
       });
 
       if (!res.ok || !res.body) {
@@ -95,22 +120,61 @@ export function ChatClient() {
     setError(null);
   }
 
+  const activeTemplate = templates.find((t) => t.id === templateId) ?? null;
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <h1 className="text-3xl font-bold">Chat</h1>
-        <button
-          onClick={onNewChat}
-          className="rounded border border-neutral-700 px-3 py-1 text-sm hover:bg-neutral-800"
-        >
-          New chat
-        </button>
+        <div className="flex items-center gap-2">
+          <select
+            value={templateId}
+            onChange={(e) => {
+              setTemplateId(e.target.value);
+              // Switching template mid-conversation would mix system prompts;
+              // start a fresh thread so behaviour is predictable.
+              setMessages([]);
+              setConversationId(null);
+              setError(null);
+            }}
+            disabled={loading}
+            className="rounded border border-neutral-700 bg-neutral-950 px-3 py-1 text-sm outline-none focus:border-neutral-500 disabled:opacity-50"
+          >
+            <option value="">Default agent</option>
+            {templates.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+          <a
+            href="/agents"
+            className="rounded border border-neutral-700 px-3 py-1 text-sm hover:bg-neutral-800"
+          >
+            Agents
+          </a>
+          <button
+            onClick={onNewChat}
+            className="rounded border border-neutral-700 px-3 py-1 text-sm hover:bg-neutral-800"
+          >
+            New chat
+          </button>
+        </div>
       </div>
+
+      {activeTemplate?.description && (
+        <p className="rounded border border-neutral-800 bg-neutral-900 p-3 text-xs text-neutral-400">
+          Using <span className="text-neutral-200">{activeTemplate.name}</span>:{" "}
+          {activeTemplate.description}
+        </p>
+      )}
 
       <div className="space-y-3 rounded-lg border border-neutral-800 bg-neutral-900 p-4 min-h-[60vh]">
         {messages.length === 0 && (
           <p className="text-sm text-neutral-500">
-            Try: "What can you help me with?" or "Use rag_search for sales numbers".
+            {templateId
+              ? `Ready with ${activeTemplate?.name ?? "your template"}. Ask anything.`
+              : "Try: \"What can you help me with?\" or \"Use rag_search for sales numbers\"."}
           </p>
         )}
         {messages.map((m, i) => (
@@ -148,8 +212,9 @@ export function ChatClient() {
       </form>
 
       <p className="text-xs text-neutral-600">
-        Streaming via SSE: browser → Next.js → Fastify → Python agents → Groq. Messages persisted
-        to Postgres via `withOrg` transactional RLS.
+        Streaming via SSE: browser → Next.js → Fastify → Python agents → LLM. Messages persisted
+        to Postgres via `withOrg` transactional RLS. Templates load per-run from{" "}
+        <code>agent_templates</code>.
       </p>
     </div>
   );

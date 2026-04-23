@@ -8,6 +8,13 @@ Endpoints:
 Auth:
   All non-health endpoints require `Authorization: Bearer <AGENT_API_KEY>`.
   The API and worker services share this env var.
+
+Agent templates:
+  Pass `templateId` (UUID of an agent_templates row in the caller's org) to
+  run the default agent with that template's system prompt, tool allowlist,
+  and LLM-provider allowlist. When omitted, the built-in defaults are used
+  (same behaviour as pre-marketplace). `agentId` is retained for backward
+  compat but currently only "default" is supported.
 """
 
 from __future__ import annotations
@@ -40,6 +47,7 @@ def require_internal(authorization: str = Header(...)) -> None:
 
 class RunInput(BaseModel):
     agent_id: str = Field(default="default", alias="agentId")
+    template_id: str | None = Field(default=None, alias="templateId")
     message: str
     conversation_id: str | None = Field(default=None, alias="conversationId")
     org_id: str = Field(alias="orgId")
@@ -60,6 +68,7 @@ async def run(payload: RunInput) -> dict[str, object]:
         message=payload.message,
         org_id=payload.org_id,
         conversation_id=payload.conversation_id,
+        template_id=payload.template_id,
     )
     return result
 
@@ -74,6 +83,7 @@ async def stream(payload: RunInput) -> StreamingResponse:
             message=payload.message,
             org_id=payload.org_id,
             conversation_id=payload.conversation_id,
+            template_id=payload.template_id,
         ):
             yield f"data: {json.dumps(event)}\n\n".encode()
         yield b"data: [DONE]\n\n"

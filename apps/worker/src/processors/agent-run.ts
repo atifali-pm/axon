@@ -9,7 +9,7 @@ const AGENT_URL = process.env.AGENT_SERVICE_URL ?? "http://localhost:8100";
 const AGENT_KEY = process.env.AGENT_API_KEY;
 
 export async function agentRunProcessor(job: Job<AgentRunData>) {
-  const { _meta, agentId, message, conversationId } = job.data;
+  const { _meta, agentId, templateId, message, conversationId } = job.data;
 
   if (!AGENT_KEY) {
     throw new Error("AGENT_API_KEY not set; cannot call agents service");
@@ -24,6 +24,7 @@ export async function agentRunProcessor(job: Job<AgentRunData>) {
     },
     body: JSON.stringify({
       agentId,
+      templateId,
       message,
       conversationId,
       orgId: _meta.orgId,

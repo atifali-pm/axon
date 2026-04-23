@@ -22,6 +22,7 @@ export type WithMeta<T> = T & { _meta: JobMeta };
 
 export type AgentRunData = WithMeta<{
   agentId: string;
+  templateId?: string;
   message: string;
   conversationId: string | null;
 }>;
