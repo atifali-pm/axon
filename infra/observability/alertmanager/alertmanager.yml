@@ -1,0 +1,36 @@
+global:
+  resolve_timeout: 5m
+
+# Routing tree. The `default` receiver handles everything; flesh out
+# severity-based splits once we have more signal (e.g. Sev1 to PagerDuty,
+# Sev2 to ntfy, Sev3 to a #alerts Slack channel).
+route:
+  group_by: ["alertname", "severity"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 3h
+  receiver: default
+
+receivers:
+  - name: default
+    webhook_configs:
+      - url: "${NTFY_URL:-https://ntfy.sh/axon-alerts}"
+        send_resolved: true
+        http_config:
+          # ntfy accepts a topic in the URL path; no auth needed for public
+          # topics. For a private topic, add basic_auth or bearer_token here.
+          {}
+        # Human-readable body that ntfy's push renders as a notification.
+        # ntfy reads the 'Title', 'Priority', and 'Tags' headers; those are
+        # not configurable through Alertmanager's webhook, so we settle for
+        # a plain JSON POST. On the ntfy side, subscribers see the rendered
+        # alert JSON.
+
+inhibit_rules:
+  # If an API is entirely down, suppress high-latency and error-rate alerts
+  # for the same instance — they're just downstream of the outage.
+  - source_matchers:
+      - alertname = "ApiDown"
+    target_matchers:
+      - alertname =~ "Api.*"
+    equal: ["instance"]

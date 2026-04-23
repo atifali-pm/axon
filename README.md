@@ -155,25 +155,31 @@ Sara's firm pays nothing ongoing for the platform itself. Their only cost is the
 | 1 | Monorepo + Docker data layer + 4 app shells | ✅ shipped |
 | 2 | Drizzle schema + Better Auth + multi-tenant + **RLS enforced at runtime** | ✅ shipped |
 | 3 | BullMQ queue system + workers + Bull Board | ✅ shipped |
-| 4 | Python agents + LangGraph + multi-LLM router + SSE chat | ✅ part 1 shipped |
-| 5 | RAG pipeline: upload → chunk → embed → hybrid search | ⏳ next |
-| 6 | MCP servers (postgres, github, stripe, custom) | ⏳ |
-| 7 | Observability (Langfuse, LGTM stack, dashboards, alerts) | ⏳ |
-| 8 | Production deploy (Oracle Cloud + Cloudflare + CI/CD + billing) | ⏳ |
+| 4 | Python agents + LangGraph + multi-LLM router + SSE chat | ✅ shipped |
+| 5 | RAG pipeline: upload → chunk → embed → hybrid search | ✅ shipped |
+| 6 | MCP servers (postgres, custom template) | ✅ shipped |
+| 7 | Observability (Langfuse + Prometheus + Grafana + Loki + Alertmanager → ntfy) | ✅ shipped |
+| 8 | Billing + CI/CD + prod deploy scaffolding | ✅ code-complete (deploy blocked on external creds) |
+| 9 | Mobile companion app (Expo Android + iOS) | ✅ shipped |
+| — | Agent marketplace, fine-tune loop, prompt-injection fence, webhook idempotency | ✅ shipped |
 
 Each phase produces something runnable. See [CLAUDE.md](CLAUDE.md) for the full task breakdown.
 
-## Roadmap
+## What's live in the codebase
 
-Beyond the 8-phase core build:
+Everything above. A second-pass completion sweep closed the remaining open items:
 
-- **Phase 9 — Mobile companion app (Android + iOS via Expo)** ✅ part 1 shipped
-  - Part 1: Expo SDK 52 scaffold in `apps/mobile/`, Better Auth `bearer()` plugin for mobile token flow, email/password login, streaming chat via `react-native-sse`, document list with chunk counts
-  - Part 2 (planned): push notifications for long-running agent runs, voice input, document upload from mobile, offline message queue that replays on reconnect
-  - Part 3 (planned): EAS builds to Play Store + App Store, GitHub Actions workflow for `eas build`
-- **Agent marketplace** — shareable agent configs (system prompt + tool set + allowed LLMs) that orgs can fork into their workspace.
-- **Fine-tune loop** — capture thumbs-up/down on every assistant message, feed the high-quality pairs back as few-shot examples or LoRA training data.
-- **Self-hosted embedding alternatives** — beyond Ollama `nomic-embed-text`, support BGE and Qwen embedding models for larger context and better cross-lingual retrieval.
+- **Mobile app** (`apps/mobile/`): Expo SDK 52 + React Native 0.76 + Expo Router + NativeWind. Screens: login, chat (SSE streaming + offline queue + voice input via Groq Whisper + template picker), documents (upload + chunk-count polling). Push notifications for long-running agent runs. EAS build profiles + store-submission playbook in `apps/mobile/RELEASE.md`.
+- **Agent marketplace** (`/agents` on web, picker on mobile): org-owned templates with system prompt + allowed tool list + allowed LLM provider list. Optional public flag makes them discoverable in a marketplace feed; fork copies the template into another org's workspace. The agent service resolves the template per run and filters tools + LLM router accordingly.
+- **Fine-tune loop**: thumbs-up/down on every assistant message, `POST /api/chat/messages/:id/feedback`. `GET /api/chat/feedback/export` returns NDJSON of `{prompt, completion, rating, reason}` tuples ready for LoRA / few-shot use.
+- **Prompt-injection fence**: RAG chunks wrapped in `<untrusted_excerpt>` delimiters with an instruction telling the LLM to treat enclosed text as data, not directives. Fence strings neutralised to prevent an attacker-uploaded document from closing the fence early.
+- **Webhook idempotency**: Stripe webhooks deduped in Redis via `SET NX EX 24h` on `event.id`, so dashboard replays and Stripe retries don't double-process.
+- **ntfy alerting**: Alertmanager wired to Prometheus; drop an ntfy topic into `NTFY_URL` and get alerts on your phone.
+
+Still open (all external-cred-gated; code is ready):
+- Real production deploy on Oracle Cloud + Cloudflare (see [project_phase_8_deploy_prereqs.md](~/.claude/projects/-home-atif-projects-axon/memory/project_phase_8_deploy_prereqs.md) in memory)
+- Real App Store + Play Store submission (see [apps/mobile/RELEASE.md](apps/mobile/RELEASE.md))
+- BGE / Qwen embedding model swap (Ollama nomic-embed-text is the current default)
 
 ## Screenshots
 

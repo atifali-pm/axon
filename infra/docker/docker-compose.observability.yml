@@ -115,10 +115,29 @@ services:
       - "9121:9121"
     networks: [obs]
 
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --web.external-url=http://localhost:9093
+    volumes:
+      - ../observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    environment:
+      # Default topic; override in .env for a private one. ntfy public topics
+      # are world-readable, so pick a hard-to-guess string.
+      NTFY_URL: ${NTFY_URL:-https://ntfy.sh/axon-alerts-change-me}
+    ports:
+      - "9093:9093"
+    networks: [obs]
+
 volumes:
   prom_data:
   grafana_data:
   loki_data:
+  alertmanager_data:
 
 networks:
   obs:
