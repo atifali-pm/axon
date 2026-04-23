@@ -29,6 +29,13 @@
       "when": 1776878978618,
       "tag": "0003_classy_chat",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1776925561679,
+      "tag": "0004_faulty_demogoblin",
+      "breakpoints": true
     }
   ]
 }

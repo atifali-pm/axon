@@ -120,6 +120,52 @@ export const verifications = pgTable("verifications", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+/**
+ * Agent templates — shareable agent configs.
+ *
+ * An org can create a template (system prompt + allowed tools + allowed
+ * LLM providers) and optionally mark it public. Public templates are
+ * discoverable by every org in the marketplace and can be forked into
+ * another org's workspace (copy, not reference, so the forker owns it
+ * and can edit freely).
+ *
+ * RLS: organization_id scoped like every other tenant table. Public
+ * discovery bypasses RLS via a dedicated API path that uses the
+ * superuser connection and filters on is_public = true.
+ */
+export const agentTemplates = pgTable(
+  "agent_templates",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    authorUserId: uuid("author_user_id").references(() => users.id, { onDelete: "set null" }),
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    description: text("description"),
+    systemPrompt: text("system_prompt").notNull(),
+    // Tool names allowed for this agent. Empty array = all tools. The agent
+    // service filters its TOOLS list by this at run time.
+    allowedTools: jsonb("allowed_tools").$type<string[]>().notNull().default([]),
+    // LLM provider ids the router is allowed to pick. Empty array = all.
+    allowedProviders: jsonb("allowed_providers").$type<string[]>().notNull().default([]),
+    // Sample prompts that show up in the template preview / fork dialog.
+    samplePrompts: jsonb("sample_prompts").$type<string[]>().notNull().default([]),
+    isPublic: boolean("is_public").notNull().default(false),
+    // If this template was forked, point back to the source for attribution.
+    forkedFromId: uuid("forked_from_id"),
+    forkCount: integer("fork_count").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    unique("agent_templates_org_slug_unique").on(t.organizationId, t.slug),
+    index("agent_templates_org_idx").on(t.organizationId),
+    index("agent_templates_public_idx").on(t.isPublic),
+  ],
+);
+
 export const pushTokens = pgTable(
   "push_tokens",
   {

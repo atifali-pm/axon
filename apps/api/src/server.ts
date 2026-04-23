@@ -15,6 +15,7 @@ const { chatRoutes } = await import("./routes/chat");
 const { billingRoutes, stripeWebhookRoutes } = await import("./routes/billing");
 const { pushRoutes } = await import("./routes/push");
 const { transcribeRoutes } = await import("./routes/transcribe");
+const { agentRoutes } = await import("./routes/agents");
 const { registerBullBoard } = await import("./routes/admin");
 const { metricsPlugin } = await import("./plugins/metrics");
 
@@ -59,6 +60,7 @@ await app.register(billingRoutes, { prefix: "/api/billing" });
 await app.register(stripeWebhookRoutes, { prefix: "/webhooks" });
 await app.register(pushRoutes, { prefix: "/api/push" });
 await app.register(transcribeRoutes, { prefix: "/api/chat" });
+await app.register(agentRoutes, { prefix: "/api/agents" });
 await registerBullBoard(app);
 
 const port = Number(process.env.API_PORT ?? 4000);
