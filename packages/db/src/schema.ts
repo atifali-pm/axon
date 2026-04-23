@@ -288,6 +288,36 @@ export const messages = pgTable(
   (t) => [index("msg_conv_idx").on(t.conversationId, t.createdAt)],
 );
 
+/**
+ * Feedback on an individual assistant message. +1/-1 per user per message,
+ * optionally with a freeform reason. The export endpoint builds (prompt,
+ * completion, rating) tuples from this table joined with the preceding user
+ * message, ready for LoRA / few-shot use.
+ */
+export const messageFeedback = pgTable(
+  "message_feedback",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    rating: integer("rating").notNull(),
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    unique("message_feedback_user_message_unique").on(t.userId, t.messageId),
+    index("message_feedback_org_idx").on(t.organizationId),
+    index("message_feedback_rating_idx").on(t.rating),
+  ],
+);
+
 export const usage = pgTable(
   "usage",
   {

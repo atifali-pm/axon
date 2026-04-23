@@ -22,6 +22,7 @@ const MAX_ENTRIES = 20;
 export type QueuedMessage = {
   id: string;
   conversationId: string | null;
+  templateId: string | null;
   text: string;
   enqueuedAt: number;
   attempts: number;

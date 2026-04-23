@@ -2,7 +2,12 @@
 
 import { useEffect, useState } from "react";
 
-type Msg = { role: "user" | "assistant"; content: string };
+type Msg = {
+  role: "user" | "assistant";
+  content: string;
+  id?: string; // populated from SSE frames once the server has persisted it
+  rating?: 1 | -1 | null;
+};
 
 type Template = {
   id: string;
@@ -28,6 +33,37 @@ export function ChatClient() {
       .then((d: { templates: Template[] }) => setTemplates(d.templates ?? []))
       .catch(() => {});
   }, []);
+
+  async function rate(messageId: string, rating: 1 | -1) {
+    setMessages((m) =>
+      m.map((msg) => (msg.id === messageId ? { ...msg, rating } : msg)),
+    );
+    try {
+      const res = await fetch(`${API_URL}/api/chat/messages/${messageId}/feedback`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rating }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+    } catch (err) {
+      // Roll back the optimistic update on failure.
+      setMessages((m) =>
+        m.map((msg) => (msg.id === messageId ? { ...msg, rating: null } : msg)),
+      );
+      setError((err as Error).message);
+    }
+  }
+
+  async function unrate(messageId: string) {
+    setMessages((m) =>
+      m.map((msg) => (msg.id === messageId ? { ...msg, rating: null } : msg)),
+    );
+    await fetch(`${API_URL}/api/chat/messages/${messageId}/feedback`, {
+      method: "DELETE",
+      credentials: "include",
+    }).catch(() => {});
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -82,6 +118,7 @@ export function ChatClient() {
               type: string;
               content?: string;
               name?: string;
+              id?: string;
             };
             if (ev.type === "token" && typeof ev.content === "string") {
               setMessages((m) => {
@@ -100,6 +137,27 @@ export function ChatClient() {
                   ...m.slice(0, -1),
                   { ...last, content: last.content + `\n> calling tool: ${ev.name}\n` },
                 ];
+              });
+            } else if (ev.type === "user_message" && ev.id) {
+              const id = ev.id;
+              setMessages((m) => {
+                // Attach id to the most recent user message that doesn't have one yet.
+                for (let i = m.length - 1; i >= 0; i--) {
+                  const x = m[i];
+                  if (x && x.role === "user" && !x.id) {
+                    const copy = [...m];
+                    copy[i] = { ...x, id };
+                    return copy;
+                  }
+                }
+                return m;
+              });
+            } else if (ev.type === "assistant_message" && ev.id) {
+              const id = ev.id;
+              setMessages((m) => {
+                const last = m[m.length - 1];
+                if (!last || last.role !== "assistant") return m;
+                return [...m.slice(0, -1), { ...last, id }];
               });
             }
           } catch {
@@ -131,8 +189,6 @@ export function ChatClient() {
             value={templateId}
             onChange={(e) => {
               setTemplateId(e.target.value);
-              // Switching template mid-conversation would mix system prompts;
-              // start a fresh thread so behaviour is predictable.
               setMessages([]);
               setConversationId(null);
               setError(null);
@@ -174,7 +230,7 @@ export function ChatClient() {
           <p className="text-sm text-neutral-500">
             {templateId
               ? `Ready with ${activeTemplate?.name ?? "your template"}. Ask anything.`
-              : "Try: \"What can you help me with?\" or \"Use rag_search for sales numbers\"."}
+              : "Try: \"What can you help me with?\" or \"Summarize the latest uploaded doc\"."}
           </p>
         )}
         {messages.map((m, i) => (
@@ -188,6 +244,32 @@ export function ChatClient() {
             >
               {m.content || (loading && i === messages.length - 1 ? "…" : "")}
             </div>
+            {m.role === "assistant" && m.id && m.content && (
+              <div className="mt-1 flex gap-1 text-left">
+                <button
+                  onClick={() => (m.rating === 1 ? unrate(m.id!) : rate(m.id!, 1))}
+                  aria-label="thumbs up"
+                  className={
+                    m.rating === 1
+                      ? "rounded border border-emerald-700 bg-emerald-900/40 px-2 py-0.5 text-xs text-emerald-300"
+                      : "rounded border border-neutral-700 px-2 py-0.5 text-xs text-neutral-400 hover:bg-neutral-800"
+                  }
+                >
+                  👍
+                </button>
+                <button
+                  onClick={() => (m.rating === -1 ? unrate(m.id!) : rate(m.id!, -1))}
+                  aria-label="thumbs down"
+                  className={
+                    m.rating === -1
+                      ? "rounded border border-red-800 bg-red-900/40 px-2 py-0.5 text-xs text-red-300"
+                      : "rounded border border-neutral-700 px-2 py-0.5 text-xs text-neutral-400 hover:bg-neutral-800"
+                  }
+                >
+                  👎
+                </button>
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -212,9 +294,17 @@ export function ChatClient() {
       </form>
 
       <p className="text-xs text-neutral-600">
-        Streaming via SSE: browser → Next.js → Fastify → Python agents → LLM. Messages persisted
-        to Postgres via `withOrg` transactional RLS. Templates load per-run from{" "}
-        <code>agent_templates</code>.
+        SSE streaming · Postgres RLS via <code>withOrg</code> · templates load per-run ·
+        thumbs-up/down captured for fine-tune training (JSONL export at{" "}
+        <a
+          href={`${API_URL}/api/chat/feedback/export`}
+          className="underline hover:text-neutral-400"
+          target="_blank"
+          rel="noreferrer"
+        >
+          /api/chat/feedback/export
+        </a>
+        ).
       </p>
     </div>
   );

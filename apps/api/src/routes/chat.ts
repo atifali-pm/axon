@@ -9,6 +9,7 @@ type ChatBody = {
   message?: string;
   conversationId?: string;
   agentId?: string;
+  templateId?: string;
   stream?: boolean;
 };
 
@@ -28,7 +29,7 @@ export async function chatRoutes(app: FastifyInstance) {
 
     // Upsert conversation + persist the user message inside a single
     // RLS-scoped transaction before calling out to the agent service.
-    const conv = await withOrg(orgId, async (tx) => {
+    const { conv, userMessageId } = await withOrg(orgId, async (tx) => {
       let c: typeof schema.conversations.$inferSelect | undefined;
       if (body.conversationId) {
         c = await tx.query.conversations.findFirst({
@@ -50,12 +51,15 @@ export async function chatRoutes(app: FastifyInstance) {
         c = rows[0];
       }
       if (!c) throw new Error("failed to upsert conversation");
-      await tx.insert(schema.messages).values({
-        conversationId: c.id,
-        role: "user",
-        content: body.message!,
-      });
-      return c;
+      const userRows = await tx
+        .insert(schema.messages)
+        .values({
+          conversationId: c.id,
+          role: "user",
+          content: body.message!,
+        })
+        .returning({ id: schema.messages.id });
+      return { conv: c, userMessageId: userRows[0]?.id ?? null };
     });
 
     if (shouldStream) {
@@ -67,6 +71,7 @@ export async function chatRoutes(app: FastifyInstance) {
         },
         body: JSON.stringify({
           agentId,
+          templateId: body.templateId,
           message: body.message,
           conversationId: conv.id,
           orgId,
@@ -86,6 +91,14 @@ export async function chatRoutes(app: FastifyInstance) {
       reply.raw.setHeader("X-Conversation-Id", conv.id);
       reply.hijack();
 
+      // Emit the user message id first so the client can attach feedback
+      // to either side of the turn after the stream completes.
+      if (userMessageId) {
+        reply.raw.write(
+          `data: ${JSON.stringify({ type: "user_message", id: userMessageId })}\n\n`,
+        );
+      }
+
       const decoder = new TextDecoder();
       let buffered = "";
       let finalText = "";
@@ -97,8 +110,6 @@ export async function chatRoutes(app: FastifyInstance) {
           const chunk = decoder.decode(value, { stream: true });
           reply.raw.write(chunk);
           buffered += chunk;
-          // Parse "data: {...}" frames to accumulate the final assistant text
-          // so we can persist the message at the end of the stream.
           let idx: number;
           while ((idx = buffered.indexOf("\n\n")) !== -1) {
             const frame = buffered.slice(0, idx).trim();
@@ -117,18 +128,27 @@ export async function chatRoutes(app: FastifyInstance) {
           }
         }
       } finally {
+        // Persist the assistant message, then emit its id so the client
+        // can wire thumbs-up/down before closing the stream.
+        if (finalText) {
+          const assistantRows = await withOrg(orgId, (tx) =>
+            tx
+              .insert(schema.messages)
+              .values({
+                conversationId: conv.id,
+                role: "assistant",
+                content: finalText,
+              })
+              .returning({ id: schema.messages.id }),
+          );
+          const assistantMessageId = assistantRows[0]?.id;
+          if (assistantMessageId) {
+            reply.raw.write(
+              `data: ${JSON.stringify({ type: "assistant_message", id: assistantMessageId })}\n\n`,
+            );
+          }
+        }
         reply.raw.end();
-      }
-
-      // Persist assistant message after stream completes.
-      if (finalText) {
-        await withOrg(orgId, (tx) =>
-          tx.insert(schema.messages).values({
-            conversationId: conv.id,
-            role: "assistant",
-            content: finalText,
-          }),
-        );
       }
       return;
     }
@@ -137,7 +157,12 @@ export async function chatRoutes(app: FastifyInstance) {
     const row = await enqueue(
       QUEUE_NAMES.agentRun,
       "run",
-      { agentId, message: body.message!, conversationId: conv.id },
+      {
+        agentId,
+        templateId: body.templateId,
+        message: body.message!,
+        conversationId: conv.id,
+      },
       orgId,
     );
     return { jobId: row.id, conversationId: conv.id, status: row.status };

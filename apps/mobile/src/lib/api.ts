@@ -99,6 +99,18 @@ export const api = {
   async documents(): Promise<{ documents: Array<{ id: string; title: string; chunkCount: number; createdAt: string }> }> {
     return request(`/api/documents`);
   },
+  async agents(): Promise<{ templates: Array<{ id: string; name: string; slug: string; description: string | null }> }> {
+    return request(`/api/agents`);
+  },
+  async rateMessage(messageId: string, rating: 1 | -1, reason?: string): Promise<{ ok: boolean }> {
+    return request(`/api/chat/messages/${messageId}/feedback`, {
+      method: "POST",
+      body: JSON.stringify({ rating, reason }),
+    });
+  },
+  async unrateMessage(messageId: string): Promise<{ ok: boolean }> {
+    return request(`/api/chat/messages/${messageId}/feedback`, { method: "DELETE" });
+  },
   async uploadDocument(asset: { uri: string; name: string; mimeType?: string | null }): Promise<{ document: { id: string; title: string }; jobId: string }> {
     const token = await getToken();
     if (!token) throw new Error("not signed in");

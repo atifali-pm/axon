@@ -14,6 +14,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { requireAuth } from "../middleware/auth";
 import { enqueue } from "../queues";
+import { redisConnection } from "../queues/connection";
 import { priceFor, stripe, stripeConfigured } from "../lib/stripe";
 
 async function requireOwner(req: FastifyRequest, reply: FastifyReply) {
@@ -133,6 +134,16 @@ export async function stripeWebhookRoutes(app: FastifyInstance) {
     } catch (err) {
       app.log.warn({ err }, "stripe webhook signature verification failed");
       return reply.code(400).send({ error: "bad_signature" });
+    }
+
+    // Idempotency: Stripe retries on 5xx and occasionally double-delivers even
+    // on 2xx. A SETNX against Redis with a 24h TTL dedupes replays without
+    // relying on our DB (which the worker, not this handler, mutates).
+    const dedupKey = `stripe:evt:${event.id}`;
+    const first = await redisConnection.set(dedupKey, "1", "EX", 24 * 3600, "NX");
+    if (first === null) {
+      app.log.info({ eventId: event.id, type: event.type }, "stripe webhook replay ignored");
+      return { received: true, duplicate: true, type: event.type };
     }
 
     // Pull orgId from subscription / customer metadata to route the job.
