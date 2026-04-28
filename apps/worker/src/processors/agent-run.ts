@@ -1,4 +1,4 @@
-import { db, schema } from "@axon/db";
+import { db, schema, withOrg } from "@axon/db";
 import type { AgentRunData } from "@axon/shared/queues";
 import type { Job } from "bullmq";
 import { eq } from "drizzle-orm";
@@ -40,6 +40,29 @@ export async function agentRunProcessor(job: Job<AgentRunData>) {
   const body = (await res.json()) as { content: string; messages: unknown[] };
   const latencyMs = Date.now() - startedAt;
 
+  // Persist the assistant reply so the conversation /messages endpoint stays
+  // in sync. The streaming path on the API does this in its finally block;
+  // the async (queued) path was missing it, leaving conversations with only
+  // the user message.
+  let assistantMessageId: string | null = null;
+  if (conversationId && body.content) {
+    try {
+      const rows = await withOrg(_meta.orgId, (tx) =>
+        tx
+          .insert(schema.messages)
+          .values({
+            conversationId,
+            role: "assistant",
+            content: body.content,
+          })
+          .returning({ id: schema.messages.id }),
+      );
+      assistantMessageId = rows[0]?.id ?? null;
+    } catch (err) {
+      logger.warn({ err, conversationId }, "failed to persist assistant message");
+    }
+  }
+
   logger.info(
     {
       jobId: _meta.jobId,
@@ -78,5 +101,6 @@ export async function agentRunProcessor(job: Job<AgentRunData>) {
     content: body.content,
     messageCount: body.messages?.length ?? 0,
     latencyMs,
+    assistantMessageId,
   };
 }

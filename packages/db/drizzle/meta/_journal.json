@@ -43,6 +43,13 @@
       "when": 1776931753543,
       "tag": "0005_rapid_carmella_unuscione",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1777190400000,
+      "tag": "0006_rls_for_marketplace_and_feedback",
+      "breakpoints": true
     }
   ]
 }

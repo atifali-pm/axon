@@ -11,7 +11,7 @@
  * scoped throughout; withOrg + RLS enforce it at the DB.
  */
 import { db, schema } from "@axon/db";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, lt, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { requireAuth } from "../middleware/auth";
 
@@ -160,7 +160,7 @@ export async function feedbackRoutes(app: FastifyInstance) {
             and(
               eq(schema.messages.conversationId, r.conversationId),
               eq(schema.messages.role, "user"),
-              sql`${schema.messages.createdAt} < ${r.assistantCreatedAt}`,
+              lt(schema.messages.createdAt, r.assistantCreatedAt),
             ),
           )
           .orderBy(desc(schema.messages.createdAt))
