@@ -27,7 +27,7 @@ I built Axon, an open-source reference platform for AI agent SaaS. It ships ever
 - **7 typed BullMQ queues** with shared producer/consumer types across the workspace
 - **LangGraph agents** with tool calling, streaming via SSE, multi-LLM router (Groq → Gemini → Claude → GPT → Ollama fallback chain)
 - **Per-tenant RAG** on Postgres pgvector (HNSW + hybrid FTS) with runtime org scoping and prompt-injection fences
-- **MCP servers** for Postgres and the template for any custom integration; agents load them as tools per tenant
+- **MCP servers** for Postgres + GitHub plus a custom-server template; safety rails (read-only postgres, write-gated github), agents load them as tools per tenant
 - **Stripe billing** with webhook idempotency in Redis + plan-enforcement middleware + pricing + billing pages
 - **Observability**: Prometheus + Grafana + Loki + Langfuse + Alertmanager → ntfy, all self-hosted
 - **Mobile** (Expo SDK 52): native chat with streaming, voice input via Groq Whisper, offline message queue, push notifications, document upload
@@ -35,6 +35,7 @@ I built Axon, an open-source reference platform for AI agent SaaS. It ships ever
 - **Fine-tune loop**: thumbs-up/down on every assistant message, NDJSON export ready for LoRA training
 - **$0/mo production stack**: Oracle Cloud Always Free ARM VM + Cloudflare Tunnel + Caddy + CI/CD to GHCR
 - **Production hygiene**: 30-day Postgres backups to Cloudflare R2, security checklist, privacy policy, CI with integration smoke, linux/arm64 multi-arch images
+- **End-to-end seed + smoke** (`scripts/seed-demo.ts`): drives the real stack — signup, org, templates, chat with real LLM round-trip, rating, NDJSON export, cross-tenant isolation probe — in one command
 
 ## Tech stack (tagline)
 

@@ -30,7 +30,7 @@ What's in it:
 
 4. **Per-tenant RAG.** Ollama `nomic-embed-text` embeddings, pgvector HNSW cosine index, hybrid vector + Postgres FTS search weighted 70/30 in a single SQL. Prompt-injection fences wrap retrieved chunks in `<untrusted_excerpt>` delimiters with explicit instructions to the LLM to treat enclosed text as data, not directives.
 
-5. **MCP-native.** Custom `postgres-mcp` server (read-only SQL, ORG_ID-scoped via RLS), `custom-mcp` template. Python agents load MCP tools per tenant via `langchain-mcp-adapters`. Also wired for Claude Desktop.
+5. **MCP-native.** Three servers: `postgres-mcp` (read-only SQL, ORG_ID-scoped via RLS), `github-mcp` (Octokit, write-gated), `custom-mcp` (template). Python agents load MCP tools per tenant via `langchain-mcp-adapters`. Also wired for Claude Desktop.
 
 6. **Stripe billing.** Checkout, portal, signed webhooks with Redis-backed idempotency (`SET NX EX 24h` on `event.id`), plan-enforcement middleware. Graceful 503 when keys aren't configured.
 

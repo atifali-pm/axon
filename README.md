@@ -22,7 +22,7 @@ Axon is the reference codebase for a modern AI agent platform: agentic chat with
 - **Row-level security**: Postgres RLS policies gate every tenant-scoped query at the DB (Phase 2 live, runtime-enforced)
 - **Better Auth**: email/password + session cookies + org plugin, cross-service cookie verification (Phase 2 live)
 - **Multi-LLM router** (Phase 4): Groq primary, Gemini fallback, OpenRouter/Claude/GPT/Ollama as needed
-- **MCP servers** (Phase 6): Postgres, GitHub, Stripe — usable by Axon agents and external clients like Claude Desktop
+- **MCP servers** (Phase 6): Postgres + GitHub + a custom-server template, usable by Axon agents and external clients like Claude Desktop
 - **Observability** (Phase 7): Langfuse for LLM traces, Prometheus + Grafana + Loki for infra
 - **$0 deploy target** (Phase 8): Oracle Cloud Always Free ARM + Cloudflare Tunnel + Caddy auto-HTTPS
 
@@ -157,7 +157,7 @@ Sara's firm pays nothing ongoing for the platform itself. Their only cost is the
 | 3 | BullMQ queue system + workers + Bull Board | ✅ shipped |
 | 4 | Python agents + LangGraph + multi-LLM router + SSE chat | ✅ shipped |
 | 5 | RAG pipeline: upload → chunk → embed → hybrid search | ✅ shipped |
-| 6 | MCP servers (postgres, custom template) | ✅ shipped |
+| 6 | MCP servers (postgres + github + custom template) | ✅ shipped |
 | 7 | Observability (Langfuse + Prometheus + Grafana + Loki + Alertmanager → ntfy) | ✅ shipped |
 | 8 | Billing + CI/CD + prod deploy scaffolding | ✅ code-complete (deploy blocked on external creds) |
 | 9 | Mobile companion app (Expo Android + iOS) | ✅ shipped |
@@ -181,6 +181,18 @@ Still open (all external-cred-gated; code is ready):
 - Real App Store + Play Store submission (see [apps/mobile/RELEASE.md](apps/mobile/RELEASE.md))
 - BGE / Qwen embedding model swap (Ollama nomic-embed-text is the current default)
 
+## End-to-end smoke + demo seed
+
+`scripts/seed-demo.ts` drives the real stack via HTTP and produces a demo-ready dataset in one command. Useful for shaking out regressions and for handing a logged-in account to anyone who wants to poke around.
+
+```bash
+pnpm exec tsx scripts/seed-demo.ts
+```
+
+Steps it covers: signup -> create org + set active -> /api/me -> create 2 agent templates (1 private, 1 public) -> list mine + public marketplace discovery -> send a chat (real LLM via Groq) -> poll for the assistant message -> thumbs-up rating -> NDJSON feedback export -> cross-tenant isolation probe (a second org sees zero of the first org's templates and gets 404 on private template ids).
+
+Each run prints a fresh `demo+<stamp>@axon.dev` / `demopass-axon-12345` you can use to log in at http://localhost:3100/login.
+
 ## Screenshots
 
 | Landing | Signup | Dashboard (orgs) |
@@ -190,6 +202,12 @@ Still open (all external-cred-gated; code is ready):
 | Queues overview | API /api/me | Recent jobs |
 |---|---|---|
 | ![queues](docs/images/bull-board.png) | ![api-me](docs/images/api-me.png) | ![jobs](docs/images/bull-board-jobs.png) |
+
+| Agent marketplace | Chat with feedback |
+|---|---|
+| ![agents](docs/images/agents-marketplace.png) | ![chat](docs/images/chat.png) |
+
+Regenerate with `pnpm screenshots` (creates a throwaway user, captures every view, drops PNGs into `docs/images/`).
 
 ## What makes this different
 

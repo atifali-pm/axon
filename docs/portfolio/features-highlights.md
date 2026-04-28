@@ -137,7 +137,8 @@ Every integration ships as an MCP server, usable by:
 - Cursor / any MCP-aware client
 
 **Ship list**:
-- `@axon/postgres-mcp` — read-only SQL + list_tables, ORG_ID-scoped through RLS
+- `@axon/postgres-mcp` — read-only SQL + list_tables, ORG_ID-scoped through RLS, hard row + timeout caps
+- `@axon/github-mcp` — list_repos / get_repo / search_code / list_issues / get_issue / create_issue. Octokit-backed, GITHUB_TOKEN validated at startup, GITHUB_OWNER pin, write tools off by default (`GITHUB_ALLOW_WRITES=true` to enable)
 - `@axon/custom-mcp` — template for new integrations (copy, rename, wire in one new tool)
 
 **Screenshot candidate**: Claude Desktop config snippet + response showing Axon's MCP in action.

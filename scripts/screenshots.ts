@@ -100,6 +100,51 @@ async function main() {
   await page.waitForTimeout(600);
   await shoot(page, "dashboard");
 
+  // 4b. Seed demo content (agent templates + a conversation) so the
+  //     marketplace and chat screenshots are non-empty.
+  console.log("[4b] seed agent templates + conversation");
+  for (const t of [
+    {
+      name: "Support Assistant",
+      slug: "support-assistant",
+      description: "Polite customer support agent grounded in your docs.",
+      systemPrompt:
+        "You are a polite customer support agent. Use rag_search; cite sources.",
+      allowedTools: ["rag_search"],
+      allowedProviders: ["groq", "gemini"],
+      samplePrompts: ["How do I reset my password?", "What is in the Pro plan?"],
+      isPublic: false,
+    },
+    {
+      name: "SQL Researcher",
+      slug: "sql-researcher",
+      description: "Read-only Postgres research assistant. Public template.",
+      systemPrompt:
+        "You are a Postgres researcher. Use list_tables then run SELECTs.",
+      allowedTools: ["postgres.list_tables", "postgres.query"],
+      allowedProviders: ["groq", "openai"],
+      samplePrompts: ["What tables exist?", "How many users signed up this week?"],
+      isPublic: true,
+    },
+  ]) {
+    const status = await page.evaluate(
+      async ({ API, t, orgId }) => {
+        const r = await fetch(`${API}/api/agents`, {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            "x-organization-id": orgId,
+          },
+          body: JSON.stringify(t),
+        });
+        return r.status;
+      },
+      { API, t, orgId },
+    );
+    console.log(`  template ${t.slug} -> HTTP ${status}`);
+  }
+
   // 5. /api/me with the active-org session
   console.log("[5] api me");
   const apiPage = await ctx.newPage();
@@ -276,6 +321,140 @@ async function main() {
   `);
   await apiPage.waitForTimeout(400);
   await shoot(apiPage, "bull-board-jobs");
+
+  // 9. Agent marketplace page (templates seeded in step 4b)
+  console.log("[9] agents marketplace");
+  await page.goto(`${WEB}/agents`);
+  await waitForIdle(page);
+  await page.waitForTimeout(800);
+  await shoot(page, "agents-marketplace");
+
+  // 10. Chat panel rendered from real conversation + feedback data.
+  //     Driving the SSE stream through the browser hits cookie-scoping on
+  //     cross-port localhost, so we render a stylized HTML panel instead.
+  //     Same approach used for the Bull Board screenshot.
+  console.log("[10] chat panel with conversation + feedback");
+
+  // Send a chat through the API so a real exchange exists, then poll the
+  // /messages endpoint until the worker has persisted the assistant reply.
+  const chatResp = await page.evaluate(
+    async ({ API, orgId }) => {
+      const r = await fetch(`${API}/api/chat`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "x-organization-id": orgId,
+        },
+        body: JSON.stringify({
+          message: "Reply with one short sentence introducing yourself.",
+          stream: false,
+        }),
+      });
+      return r.ok ? r.json() : null;
+    },
+    { API, orgId },
+  );
+  const conversationId = (chatResp as { conversationId?: string })?.conversationId;
+
+  type Msg = { id: string; role: string; content: string; createdAt: string };
+  let msgs: Msg[] = [];
+  if (conversationId) {
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+      msgs = await page.evaluate(
+        async ({ API, conversationId, orgId }) => {
+          const r = await fetch(`${API}/api/chat/${conversationId}/messages`, {
+            credentials: "include",
+            headers: { "x-organization-id": orgId },
+          });
+          if (!r.ok) return [] as Msg[];
+          const j = (await r.json()) as { messages?: Msg[] };
+          return j.messages ?? [];
+        },
+        { API, conversationId, orgId },
+      );
+      if (msgs.some((m) => m.role === "assistant" && m.content)) break;
+      await page.waitForTimeout(1500);
+    }
+    // Thumbs-up the assistant message so the panel can show a rated reply.
+    const assistant = msgs.find((m) => m.role === "assistant" && m.content);
+    if (assistant) {
+      await page.evaluate(
+        async ({ API, msgId, orgId }) => {
+          await fetch(`${API}/api/chat/messages/${msgId}/feedback`, {
+            method: "POST",
+            credentials: "include",
+            headers: {
+              "Content-Type": "application/json",
+              "x-organization-id": orgId,
+            },
+            body: JSON.stringify({ rating: 1, reason: "demo seed" }),
+          });
+        },
+        { API, msgId: assistant.id, orgId },
+      );
+    }
+  }
+
+  const ratedId = msgs.find((m) => m.role === "assistant")?.id;
+  const bubbles = msgs
+    .map((m) => {
+      const isUser = m.role === "user";
+      const align = isUser ? "flex-end" : "flex-start";
+      const bg = isUser ? "#1d4ed8" : "#1a1a1a";
+      const color = "#f5f5f5";
+      const rated = !isUser && m.id === ratedId;
+      const ratingBadge = rated
+        ? `<div style="margin-top:8px;color:#22c55e;font-size:13px;">👍 thumbs-up <span style="color:#666;">— exported to NDJSON</span></div>`
+        : "";
+      const escapedContent = escapeHtml(m.content || "(streaming…)");
+      return `
+        <div style="display:flex;justify-content:${align};margin-bottom:18px;">
+          <div style="max-width:680px;background:${bg};color:${color};padding:14px 18px;border-radius:14px;line-height:1.5;font-size:15px;${
+            isUser ? "border-bottom-right-radius:4px;" : "border-bottom-left-radius:4px;border:1px solid #2a2a2a;"
+          }">
+            ${escapedContent}
+            ${ratingBadge}
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+
+  await apiPage.setContent(`
+    <html><body style="background:#0a0a0a;color:#e5e5e5;font-family:ui-sans-serif,-apple-system,Segoe UI,sans-serif;padding:48px;margin:0;">
+      <div style="max-width:880px;margin:0 auto;">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:24px;">
+          <div>
+            <h1 style="margin:0 0 4px;font-size:28px;letter-spacing:-0.02em;">Chat</h1>
+            <div style="color:#888;font-size:14px;">SSE streaming · LangGraph + multi-LLM router · per-org RLS</div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <select style="background:#141414;color:#e5e5e5;border:1px solid #2a2a2a;border-radius:8px;padding:8px 12px;font-size:13px;">
+              <option>Default agent</option>
+              <option>Support Assistant</option>
+              <option>SQL Researcher</option>
+            </select>
+            <button style="background:#1a1a1a;color:#e5e5e5;border:1px solid #2a2a2a;border-radius:8px;padding:8px 14px;font-size:13px;cursor:pointer;">Agents</button>
+            <button style="background:#fff;color:#0a0a0a;border:0;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:500;cursor:pointer;">New chat</button>
+          </div>
+        </div>
+        <div style="background:#0d0d0d;border:1px solid #1f1f1f;border-radius:12px;padding:24px;min-height:420px;">
+          ${bubbles || `<div style="color:#666;text-align:center;padding:48px;">no messages yet</div>`}
+        </div>
+        <div style="margin-top:18px;display:flex;gap:8px;">
+          <input value="Ask anything…" style="flex:1;background:#0d0d0d;border:1px solid #2a2a2a;color:#666;border-radius:8px;padding:12px 16px;font-size:14px;" />
+          <button style="background:#1a1a1a;color:#888;border:1px solid #2a2a2a;border-radius:8px;padding:8px 18px;font-size:14px;cursor:pointer;">Send</button>
+        </div>
+        <div style="margin-top:16px;color:#555;font-size:13px;">
+          SSE streaming · Postgres RLS via <code style="background:#1a1a1a;padding:2px 6px;border-radius:4px;color:#e5e5e5;">withOrg</code> · templates load per-run · thumbs-up/down captured for fine-tune training (NDJSON export at <code style="background:#1a1a1a;padding:2px 6px;border-radius:4px;color:#e5e5e5;">/api/chat/feedback/export</code>).
+        </div>
+      </div>
+    </body></html>
+  `);
+  await apiPage.waitForTimeout(400);
+  await shoot(apiPage, "chat");
 
   await browser.close();
   console.log(`\nDone. Screenshots in ${OUT}`);

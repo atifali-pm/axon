@@ -126,7 +126,7 @@ All 9 phases on `main`, plus the post-launch roadmap:
 | 3 | BullMQ queues, worker processors, Bull Board admin UI |
 | 4 | LangGraph agents, multi-LLM router, streaming SSE chat |
 | 5 | RAG pipeline: upload → chunk → embed → pgvector HNSW + FTS hybrid search |
-| 6 | MCP: `@axon/postgres-mcp`, `@axon/custom-mcp`, Python bridge via `langchain-mcp-adapters` |
+| 6 | MCP: `@axon/postgres-mcp`, `@axon/github-mcp`, `@axon/custom-mcp`, Python bridge via `langchain-mcp-adapters` |
 | 7 | Observability: Prometheus + Grafana + Loki + Langfuse + Alertmanager → ntfy |
 | 8 | Stripe billing + plan enforcement + CI/CD linux/arm64 → GHCR → Oracle VM deploy scripts |
 | 9 | Expo SDK 52 mobile app: streaming chat, voice, offline queue, push, template picker, EAS build config |

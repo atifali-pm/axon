@@ -28,9 +28,9 @@ Print this to PDF, attach to proposals, or drop into client calls.
 +-----------------+     +-----------------+    +------------------+
 | BullMQ workers  |     |  Python         |    |  MCP servers     |
 | 7 typed queues  |---->|  LangGraph      |    |  @axon/postgres  |
-| Bull Board      |     |  agents         |    |  @axon/custom    |
-+--------+--------+     |  + FastAPI      |    +------------------+
-         |              |  + multi-LLM    |
+| Bull Board      |     |  agents         |    |  @axon/github    |
++--------+--------+     |  + FastAPI      |    |  @axon/custom    |
+         |              |  + multi-LLM    |    +------------------+
          |              |    router       |
          |              |  + MCP bridge   |
          |              +--------+--------+
@@ -63,7 +63,7 @@ Outbound infra: Stripe | Resend | Cloudflare R2 (backups)
 | | |
 |---|---|
 | Monorepo apps | 5 (web, api, worker, agents, mobile) |
-| Monorepo packages | 6 (db, shared, ui, mcp-servers, postgres-mcp, custom-mcp) |
+| Monorepo packages | 7 (db, shared, ui, mcp-servers, postgres-mcp, github-mcp, custom-mcp) |
 | Tenant-isolated tables | 8+ (documents, chunks, jobs, conversations, api_keys, usage, agent_templates, message_feedback, …) |
 | BullMQ queues | 7 (typed end to end) |
 | LLM providers supported | 6 (Groq, Gemini, OpenRouter, Claude, GPT, Ollama) |

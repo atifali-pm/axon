@@ -31,7 +31,7 @@ These are vetted platforms for senior freelancers. Rates are higher, but accepta
 2. Queue-first architecture: seven typed BullMQ queues with shared producer/consumer types across the workspace. The API never waits on an LLM.
 3. LangGraph agents with multi-LLM router (Groq → Gemini → Claude → GPT → Ollama fallback chain), streaming via SSE, template marketplace with fork semantics.
 4. Per-tenant RAG on Postgres pgvector (HNSW cosine) + Postgres FTS hybrid search weighted 70/30. Prompt-injection fences via delimited untrusted-content blocks.
-5. MCP-native integrations. Custom postgres-mcp server + template for others; agents load per-tenant.
+5. MCP-native integrations. Three servers: postgres-mcp (read-only SQL, RLS-scoped), github-mcp (Octokit-backed, write-gated), custom-mcp (template for new ones); agents load per-tenant via the Python bridge.
 6. Stripe billing with signed webhooks, Redis-backed idempotency, plan-enforcement middleware.
 7. Android + iOS via Expo SDK 52: streaming chat, voice input (Groq Whisper), offline message queue, push notifications.
 8. Full observability stack: Prometheus, Grafana with provisioned dashboards, Loki + Promtail, Langfuse for LLM traces, Alertmanager → ntfy phone alerts.
